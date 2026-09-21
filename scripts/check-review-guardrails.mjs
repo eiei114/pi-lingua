@@ -47,20 +47,39 @@ function releaseTarget() {
  */
 export function parsePackResult(output, labelForError) {
   const trimmed = output.trim();
-  const start = trimmed.search(/[[{]/);
-  assert.notEqual(start, -1, `npm pack produced no JSON output for ${labelForError}`);
 
-  let parsed;
-  try {
-    parsed = JSON.parse(trimmed.slice(start));
-  } catch (error) {
-    throw new Error(`npm pack produced unparseable JSON for ${labelForError}: ${error.message}`);
+  // npm prints warnings and notices around the JSON, and a notice line may itself contain a bracket
+  // ("npm warn [deprecated] ..."). Every bracket is therefore a candidate start, and the first one
+  // that parses into a usable result wins.
+  const candidates = [];
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const character = trimmed[index];
+    if (character === "[" || character === "{") candidates.push(index);
+  }
+  assert.ok(candidates.length > 0, `npm pack produced no JSON output for ${labelForError}`);
+
+  for (const start of candidates) {
+    let parsed;
+    try {
+      parsed = JSON.parse(trimmed.slice(start));
+    } catch {
+      // A bracket in npm's surrounding output (or a nested one) — keep looking.
+      continue;
+    }
+
+    // Anything that parses is the payload, so its shape failures are reported directly instead of
+    // being hidden by a later candidate that happens to fail earlier in the parse.
+    const entries = Array.isArray(parsed) ? parsed : Object.values(parsed ?? {});
+    assert.equal(
+      entries.length,
+      1,
+      `npm pack must return exactly one package for ${labelForError}, found ${entries.length}`,
+    );
+    assert.ok(Array.isArray(entries[0]?.files), `npm pack result for ${labelForError} has no files list`);
+    return entries[0];
   }
 
-  const entries = Array.isArray(parsed) ? parsed : Object.values(parsed ?? {});
-  assert.equal(entries.length, 1, `npm pack must return exactly one package for ${labelForError}`);
-  assert.ok(Array.isArray(entries[0]?.files), `npm pack result for ${labelForError} has no files list`);
-  return entries[0];
+  throw new Error(`npm pack produced unparseable JSON for ${labelForError}`);
 }
 
 function packedFiles() {

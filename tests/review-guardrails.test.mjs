@@ -67,10 +67,19 @@ test("the pack parser ignores output printed before the JSON", () => {
   assert.equal(result.name, "pi-lingua");
 });
 
+test("the pack parser is not fooled by a bracket inside the prefix output", () => {
+  // npm can print e.g. "npm warn [deprecated] ..." ahead of the JSON.
+  const result = parsePackResult(`npm warn [deprecated] something\n${OBJECT_SHAPE}\n`, "pi-lingua");
+  assert.equal(result.name, "pi-lingua");
+
+  const array = parsePackResult(`npm warn [1/2] packing\n${ARRAY_SHAPE}`, "pi-lingua");
+  assert.equal(array.files.length, 2);
+});
+
 test("the pack parser rejects an empty or malformed result", () => {
   assert.throws(() => parsePackResult("", "pi-lingua"), /no JSON output/);
   assert.throws(() => parsePackResult("not json", "pi-lingua"), /no JSON output/);
-  assert.throws(() => parsePackResult("{ \"a\": 1 }", "pi-lingua"), /no files list/);
+  assert.throws(() => parsePackResult('{ "a": 1 }', "pi-lingua"), /no files list/);
   assert.throws(
     () => parsePackResult(JSON.stringify([{ files: [] }, { files: [] }]), "pi-lingua"),
     /exactly one package/,
