@@ -53,15 +53,14 @@ name, and only then can the trusted publisher be registered.
 
 ### Procedure
 
-Run all of this from a clean checkout of `main`. `npm login` writes to your **user** `~/.npmrc`, not to
-this repository, so `npm run publish:guard` still passes and no workflow secret is involved.
+Run all of this from the repository root. `npm login` writes to your **user** `~/.npmrc`, not to this
+repository, so `npm run publish:guard` still passes and no workflow secret is involved.
 
 ```bash
 # 0. once per machine: npm 11.15+ for `npm trust`, and 2FA enabled on the npm account
 npm install -g npm@^11.15.0
 npm --version
 
-cd C:/Users/Keisu/Projects/OSS/pi-lingua
 git status --short          # must be clean; the tarball comes from this tree
 
 # 1. claim the name. This version carries no provenance; that is unavoidable.
@@ -81,19 +80,22 @@ git add package.json package-lock.json CHANGELOG.md
 git commit -m "chore: release x.y.z"
 git push
 
-# 4. verify
-gh run watch
+# 4. verify. Name the publish run explicitly, because a bare `gh run watch` can pick up the CI run
+#    from the same push, and it exits 0 on a failed run unless --exit-status is passed.
+RUN=$(gh run list --workflow=publish.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run watch --exit-status "$RUN"
 npm view pi-lingua version
 ```
 
 Use `--no-git-tag-version` for the bump: `auto-release.yml` owns tag creation, and `npm version`
 would leave a duplicate local tag behind.
 
-`npm trust` allows exactly **one** configuration per package. To change it:
+`npm trust` allows exactly **one** configuration per package. To change it, read the id from
+`npm trust list` and substitute it for `TRUST_ID`:
 
 ```bash
-npm trust list pi-lingua          # note the id
-npm trust revoke pi-lingua --id=<id>
+npm trust list pi-lingua
+npm trust revoke pi-lingua --id=TRUST_ID
 npm trust github pi-lingua --file publish.yml --repo eiei114/pi-lingua --allow-publish -y
 ```
 
