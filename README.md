@@ -1,83 +1,168 @@
-# Pi Extension Template
+# pi-lingua
 
-[![Join dotfield.xyz on Discord](https://img.shields.io/badge/Join%20dotfield.xyz%20on%20Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/4945dXZVW5)
-
-[![CI](https://github.com/eiei114/pi-extension-template/actions/workflows/ci.yml/badge.svg)](https://github.com/eiei114/pi-extension-template/actions/workflows/ci.yml)
-[![Publish](https://github.com/eiei114/pi-extension-template/actions/workflows/publish.yml/badge.svg)](https://github.com/eiei114/pi-extension-template/actions/workflows/publish.yml)
-[![npm version](https://img.shields.io/npm/v/create-pi-extension.svg)](https://www.npmjs.com/package/create-pi-extension)
-[![npm downloads](https://img.shields.io/npm/dm/create-pi-extension.svg)](https://www.npmjs.com/package/create-pi-extension)
+[![CI](https://github.com/eiei114/pi-lingua/actions/workflows/ci.yml/badge.svg)](https://github.com/eiei114/pi-lingua/actions/workflows/ci.yml)
+[![Publish](https://github.com/eiei114/pi-lingua/actions/workflows/publish.yml/badge.svg)](https://github.com/eiei114/pi-lingua/actions/workflows/publish.yml)
+[![npm version](https://img.shields.io/npm/v/pi-lingua.svg)](https://www.npmjs.com/package/pi-lingua)
+[![npm downloads](https://img.shields.io/npm/dm/pi-lingua.svg)](https://www.npmjs.com/package/pi-lingua)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Pi package](https://img.shields.io/badge/pi-package-purple.svg)](https://pi.dev/packages)
 [![Trusted Publishing](https://img.shields.io/badge/npm-Trusted%20Publishing-blue.svg)](docs/release.md)
-<a href="https://buymeacoffee.com/ekawano114m"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" width="217" height="60"></a>
 
-> Template for building Pi packages with extensions, Agent Skills, prompts, and themes.
+> Review the language you write to Pi while the agent does the real work.
 
 ## What this is
 
-This repository is the **template source** for new Pi extension OSS projects. The published npm package is [`create-pi-extension`](https://www.npmjs.com/package/create-pi-extension) (the scaffold CLI). The repository root is **not** published to npm.
+You already type dozens of messages a day into Pi. Those messages are the densest language practice
+material you own, and today they are consumed as input and thrown away.
 
-`create-pi-extension` is live on npm — use `bunx create-pi-extension@latest` to scaffold a new project.
+`pi-lingua` reviews them on a side lane. Every prompt you send also gets a **Prompt Review**: the
+Target Language rendering of what you meant, the parts that changed, one line saying why, and up to
+two vocabulary suggestions. It appears above the prompt editor while the agent is working.
+
+Two things it never does:
+
+- **It never blocks the task.** The prompt goes to the agent immediately, unchanged. The review runs
+  in parallel and lands whenever it lands.
+- **It never rewrites your prompt.** What you wrote is what the agent reads. The corrected version is
+  shown and saved, never substituted.
 
 ## Features
 
-- Interactive `create-pi-extension` CLI for scoped and unscoped package names.
-- TypeScript-first examples for extensions, Agent Skills, prompts, themes, tools, and TUI components.
-- GitHub Actions CI, npm Trusted Publishing, security policy, issue templates, and release automation.
-- Canonical public README with standard badges, install paths, quick start, package contents, and security guidance.
-- Canonical scaffold README shared by CLI-first generation and the GitHub Template setup checklist.
+- **Non-blocking by construction.** The `input` hook always returns `continue`, and the reviewer call
+  is never awaited. See [ADR-0001](docs/adr/0001-review-never-blocks-the-task-run.md).
+- **In-process review.** One call through Pi's own model registry, reusing resolved provider auth. No
+  child process, no Windows shell shims. See [ADR-0002](docs/adr/0002-in-process-reviewer-call.md).
+- **Language-agnostic.** Set a target and a native language. English/Japanese is the default, not an
+  assumption.
+- **Two directions.** Write in the Target Language and get a correction. Write in your native
+  language and get the Target Language rendering — production practice on the prompts you were
+  writing anyway.
+- **Cheap where it can be.** Short acknowledgements, slash commands, and code paste are filtered out
+  locally, before any model call.
+- **Sinks.** The review log is plain markdown on disk, so pointing it at an Obsidian folder makes it
+  a vault note. Vocabulary reaches Anki on demand, never automatically.
 
 ## Install
 
-Create a new Pi extension package with the published CLI:
-
 ```bash
-bunx create-pi-extension@latest my-pi-package
+pi install npm:pi-lingua
 ```
 
 ## Quick start
 
-### Primary path (recommended)
+Install, restart Pi, and send any normal prompt in your target language:
 
-Scaffold a new project with the published CLI:
-
-```bash
-bunx create-pi-extension@latest my-pi-package
+```
+fix the bug of login
 ```
 
-The CLI copies the bundled template, replaces placeholders, removes bootstrap docs, and can run `git init` plus `bun install`. See [`docs/template-checklist.md`](docs/template-checklist.md) for the minimal follow-up checklist.
+While the agent works, the review appears above the editor:
 
-For a scoped package name:
+```
+EN review
+- the bug of login
++ the login bug
+noun の修飾は前置が自然
 
-```bash
-bunx create-pi-extension@latest @my-scope/my-pi-tool
+◆ vocab
+  fix → resolve  動詞の強度
 ```
 
-### Secondary path: GitHub Template
+Write in your native language instead and you get the translation:
 
-Create a repository from this template when you prefer GitHub-first onboarding:
-
-```bash
-gh repo create OWNER/my-pi-package \
-  --template eiei114/pi-extension-template \
-  --clone
+```
+JA → EN
+> ログインのバグを直して
++ Fix the login bug
+動詞で始めると指示が明確
 ```
 
-Then follow the **Secondary path** section in [`docs/template-checklist.md`](docs/template-checklist.md) for manual placeholder replacement, metadata, and post-generation cleanup.
-That checklist first copies `scaffold/package-readme.md` to `README.md`, giving GitHub Template users the same standard badges and README structure as CLI-generated packages.
+No configuration is required. Out of the box, reviews are written to Pi's own agent directory, which
+exists on every machine.
 
-## Legacy npm package
+## Commands
 
-Do **not** use `pi install npm:pi-extension-template` as the main onboarding path. That legacy [`pi-extension-template`](https://www.npmjs.com/package/pi-extension-template) npm package predates the scaffold CLI and is not maintained as the onboarding artifact. Use **`create-pi-extension`** to scaffold a new project instead. After you publish your own extension, install it with `pi install npm:YOUR_PACKAGE_NAME` as documented in that project's README.
+Arguments are never typed inline. Every command either reports immediately or reads what it needs from
+the current session.
+
+| Command | What it does |
+|---|---|
+| `/lingua:last` | Print the full text of the most recent Prompt Review into the transcript |
+| `/lingua:card` | Send the most recent vocabulary suggestions to Anki |
+| `/lingua:off` | Stop reviewing and clear the widget |
+| `/lingua:on` | Resume reviewing |
+| `/lingua:status` | Review counts, sink state, and the Reviewer Model in use |
+| `/lingua:configure` | Print the settings block to paste into `.pi/settings.json` |
+
+`/lingua:last` writes a transcript entry, not a message. It is rendered for you and is **not** sent to
+the model, so asking for a review never costs context.
+
+## Settings
+
+Project settings (`.pi/settings.json`) override agent settings, which override the defaults.
+
+```json
+{
+  "pi-lingua": {
+    "targetLanguage": "en",
+    "nativeLanguage": "ja",
+    "explainIn": "native",
+    "minWords": 3,
+    "minChars": 6,
+    "reviewNativeLanguagePrompts": true,
+    "reviewer": { "provider": "deepseek", "model": "deepseek-chat" },
+    "sinks": {
+      "reviewLog": { "enabled": true, "dir": "~/.pi/agent/lingua/reviews" },
+      "anki": {
+        "enabled": false,
+        "mode": "ankiconnect",
+        "deck": "English::PromptReview",
+        "endpoint": "http://127.0.0.1:8765",
+        "tsvPath": "~/.pi/agent/lingua/anki-cards.tsv"
+      }
+    }
+  }
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `targetLanguage` | The language you are learning. Accepts a tag (`en`) or a name (`English`). |
+| `nativeLanguage` | The language you think in. Source of translations. |
+| `explainIn` | `native` or `target` — the language of the one-line reason. |
+| `minWords` | Minimum word count for space-delimited languages. |
+| `minChars` | Minimum character count for languages written without spaces. |
+| `reviewNativeLanguagePrompts` | Set `false` to review only Target Language prompts. |
+| `reviewer` | The Reviewer Model. Omit to use the session model. |
+| `sinks.reviewLog.dir` | Where the markdown review log goes. Point it at an Obsidian folder to get vault notes. |
+| `sinks.anki.enabled` | Off by default. Anki only ever receives cards you ask for. |
+
+### Making the review log an Obsidian note
+
+Point the review log at any folder in your vault:
+
+```json
+{ "pi-lingua": { "sinks": { "reviewLog": { "dir": "4_Project/English-Study/Review" } } } }
+```
+
+The same sink writes it. One file per day, with frontmatter, so it is readable as a note and
+greppable as text.
+
+### Anki
+
+`/lingua:card` pushes the current vocabulary suggestions. With `mode: "ankiconnect"` (the default) it
+talks to the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on on `127.0.0.1:8765`.
+If the add-on is not installed or Anki is not running, the cards are written to `tsvPath` instead and
+the command tells you why — the review is never lost silently. `mode: "tsv"` skips the add-on
+entirely and always writes the file for Anki's importer (Front / Back / Tags columns).
 
 ## Package contents
 
 | Path | Purpose |
 |---|---|
-| Repository root | Template source (not published to npm) |
-| `packages/create-pi-extension/` | Published scaffold CLI |
-| `scaffold/` | Generated-package README source synced into the bundled template |
-| `docs/` | Maintainer docs and template bootstrap guides |
+| `extensions/` | Pi extension entrypoint |
+| `lib/` | Config, language tables, eligibility, reviewer call, rendering, sinks |
+| `docs/` | Release notes and design records |
 
 ## Development
 
@@ -86,37 +171,30 @@ npm install
 npm run ci
 ```
 
-`npm run ci` runs typecheck, `sync:template`, tests, `review:guardrails`, a `create-pi-extension` pack check, and template sync assertions.
+`npm run ci` runs typecheck, the test suite, the workflow guardrails, an `npm pack --dry-run`, and the
+publish guard that keeps a stored npm token out of the release path.
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`docs/template-sync.md`](docs/template-sync.md).
+The suite never touches the network. The reviewer call is injected, sinks write to temp directories,
+and AnkiConnect is probed against an unreachable port on purpose.
 
 ## Release
 
-Releases publish **`create-pi-extension`** to npm through Trusted Publishing. The root template source is not published.
-
-See [`docs/release.md`](docs/release.md) for setup details.
-
-## Docs
-
-- [`docs/template-checklist.md`](docs/template-checklist.md) — Primary vs Secondary setup flows
-- [`docs/template-sync.md`](docs/template-sync.md) — refresh `packages/create-pi-extension/template/` before CLI publish
-- [`docs/template-sync-checklist.md`](docs/template-sync-checklist.md) — checklist for syncing and verifying the bundled template
-- [`docs/examples.md`](docs/examples.md) — extension, skill, prompt, and theme examples
-- [`docs/release.md`](docs/release.md) — Trusted Publishing and monorepo publish path
-- [`docs/publish-local-validation.md`](docs/publish-local-validation.md) — local checks before merge or publish dispatch
-- [`ROADMAP.md`](ROADMAP.md) — current status, priorities, and the maintenance seed backlog
+Version bump and push; `auto-release.yml` tags the commit and dispatches `publish.yml`, which
+publishes through npm Trusted Publishing. See [`docs/release.md`](docs/release.md).
 
 ## Security
 
-Pi packages can execute code with your local permissions. Review extensions before installing third-party packages.
+Pi packages run with your local permissions. Review any extension before installing it.
 
-For vulnerability reporting, see [`SECURITY.md`](SECURITY.md).
+`pi-lingua` reads your prompts, writes markdown files, and makes one model call per eligible prompt.
+It can also POST to a local AnkiConnect endpoint. It sends nothing anywhere else and runs no shell
+commands. See [`SECURITY.md`](SECURITY.md).
 
 ## Links
 
-- npm (`create-pi-extension`): https://www.npmjs.com/package/create-pi-extension
-- GitHub: https://github.com/eiei114/pi-extension-template
-- Issues: https://github.com/eiei114/pi-extension-template/issues
+- npm: https://www.npmjs.com/package/pi-lingua
+- GitHub: https://github.com/eiei114/pi-lingua
+- Issues: https://github.com/eiei114/pi-lingua/issues
 
 ## License
 
