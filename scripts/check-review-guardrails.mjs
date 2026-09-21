@@ -39,14 +39,37 @@ function releaseTarget() {
   return { args: ["pack", "--dry-run", "--json"], lockKey: "", manifest: packageJson, prefix: "" };
 }
 
+/**
+ * `npm pack --dry-run --json` prints an array of pack results, but the shape is not stable across
+ * npm majors: newer releases wrap the result in an object keyed by package name. The publish job
+ * installs `npm@latest` before validating, while CI uses the npm bundled with the runner, so the two
+ * disagree. Accept either shape instead of assuming one.
+ */
+export function parsePackResult(output, labelForError) {
+  const trimmed = output.trim();
+  const start = trimmed.search(/[[{]/);
+  assert.notEqual(start, -1, `npm pack produced no JSON output for ${labelForError}`);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed.slice(start));
+  } catch (error) {
+    throw new Error(`npm pack produced unparseable JSON for ${labelForError}: ${error.message}`);
+  }
+
+  const entries = Array.isArray(parsed) ? parsed : Object.values(parsed ?? {});
+  assert.equal(entries.length, 1, `npm pack must return exactly one package for ${labelForError}`);
+  assert.ok(Array.isArray(entries[0]?.files), `npm pack result for ${labelForError} has no files list`);
+  return entries[0];
+}
+
 function packedFiles() {
   const target = releaseTarget();
   const npmCli = process.env.npm_execpath;
   assert.ok(npmCli, "npm_execpath is required; run this guard through npm run review:guardrails");
   const output = execFileSync(process.execPath, [npmCli, ...target.args], { cwd: ROOT, encoding: "utf8" });
-  const result = JSON.parse(output);
-  assert.equal(result.length, 1, "npm pack must return exactly one package");
-  return { files: new Set(result[0].files.map((item) => item.path)), prefix: target.prefix };
+  const result = parsePackResult(output, target.manifest.name);
+  return { files: new Set(result.files.map((item) => item.path)), prefix: target.prefix };
 }
 
 function checkReleaseState() {
