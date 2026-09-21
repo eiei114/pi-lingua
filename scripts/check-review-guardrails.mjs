@@ -39,14 +39,56 @@ function releaseTarget() {
   return { args: ["pack", "--dry-run", "--json"], lockKey: "", manifest: packageJson, prefix: "" };
 }
 
+/**
+ * `npm pack --dry-run --json` prints an array of pack results, but the shape is not stable across
+ * npm majors: newer releases wrap the result in an object keyed by package name. The publish job
+ * installs `npm@latest` before validating, while CI uses the npm bundled with the runner, so the two
+ * disagree. Accept either shape instead of assuming one.
+ */
+export function parsePackResult(output, labelForError) {
+  const trimmed = output.trim();
+
+  // npm prints warnings and notices around the JSON, and a notice line may itself contain a bracket
+  // ("npm warn [deprecated] ..."). Every bracket is therefore a candidate start, and the first one
+  // that parses into a usable result wins.
+  const candidates = [];
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const character = trimmed[index];
+    if (character === "[" || character === "{") candidates.push(index);
+  }
+  assert.ok(candidates.length > 0, `npm pack produced no JSON output for ${labelForError}`);
+
+  for (const start of candidates) {
+    let parsed;
+    try {
+      parsed = JSON.parse(trimmed.slice(start));
+    } catch {
+      // A bracket in npm's surrounding output (or a nested one) — keep looking.
+      continue;
+    }
+
+    // Anything that parses is the payload, so its shape failures are reported directly instead of
+    // being hidden by a later candidate that happens to fail earlier in the parse.
+    const entries = Array.isArray(parsed) ? parsed : Object.values(parsed ?? {});
+    assert.equal(
+      entries.length,
+      1,
+      `npm pack must return exactly one package for ${labelForError}, found ${entries.length}`,
+    );
+    assert.ok(Array.isArray(entries[0]?.files), `npm pack result for ${labelForError} has no files list`);
+    return entries[0];
+  }
+
+  throw new Error(`npm pack produced unparseable JSON for ${labelForError}`);
+}
+
 function packedFiles() {
   const target = releaseTarget();
   const npmCli = process.env.npm_execpath;
   assert.ok(npmCli, "npm_execpath is required; run this guard through npm run review:guardrails");
   const output = execFileSync(process.execPath, [npmCli, ...target.args], { cwd: ROOT, encoding: "utf8" });
-  const result = JSON.parse(output);
-  assert.equal(result.length, 1, "npm pack must return exactly one package");
-  return { files: new Set(result[0].files.map((item) => item.path)), prefix: target.prefix };
+  const result = parsePackResult(output, target.manifest.name);
+  return { files: new Set(result.files.map((item) => item.path)), prefix: target.prefix };
 }
 
 function checkReleaseState() {
