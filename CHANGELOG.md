@@ -27,3 +27,5 @@ This project follows semantic versioning.
   `/lingua:configure`. None take inline arguments.
 - CI covering typecheck, tests, workflow guardrails, an `npm pack --dry-run`, and a publish guard that
   keeps a stored npm token out of the release path.
+- Review guardrails that accept both `npm pack --json` output shapes (`[ … ]` on npm 11, an object
+  keyed by package name on npm 12) so validation gives the same answer in CI and in the publish job.
