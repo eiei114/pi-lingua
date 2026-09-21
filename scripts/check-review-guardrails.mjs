@@ -355,16 +355,16 @@ export function checkWorkflowGuardrails(root = ROOT) {
   assert.deepEqual(failures, [], `Review guardrail G8 failed:\n- ${failures.join("\n- ")}`);
 }
 
-/**
- * G1/G2/G8 are universal package-hygiene checks.
- *
- * The template's G5 check ("npm test must run tests/error-contract.test.mjs" plus the presence of
- * lib/error-contract.ts) is intentionally absent here. It asserts that every derived package still
- * ships the template CLI's exit-code error contract, which is false for a Pi extension that has no
- * CLI and no exit codes. Keeping it would force dead code into the package.
- */
 function checkErrorFailClosedContract() {
-  return;
+  const testScript = packageJson.scripts?.test ?? "";
+  const fixturePath = join(ROOT, "tests", "error-contract.test.mjs");
+  assert.ok(testScript.includes("tests/error-contract.test.mjs"), "npm test must run G5 error-path contract fixtures");
+  assert.ok(existsSync(join(ROOT, "lib", "error-contract.ts")), "G5 fail-closed error classifier must exist");
+  assert.ok(existsSync(fixturePath), "G5 valid/invalid error fixtures must exist");
+  const fixtureContent = readFileSync(fixturePath, "utf8");
+  for (const sentinel of ["validFixtures", "invalidFixtures", "fallbackAfterCanonicalRecheck"]) {
+    assert.ok(fixtureContent.includes(sentinel), `G5 fixture must retain ${sentinel}`);
+  }
 }
 
 function main() {
@@ -372,7 +372,7 @@ function main() {
   checkPackageDocs();
   checkErrorFailClosedContract();
   checkWorkflowGuardrails();
-  console.log("Review guardrails G1/G2/G8 passed");
+  console.log("Review guardrails G1/G2/G5/G8 passed");
 }
 
 const mainPath = process.argv[1] ? resolve(process.argv[1]) : "";

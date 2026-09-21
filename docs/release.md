@@ -1,48 +1,120 @@
 # Release
 
-Releases publish `pi-lingua` to npm through **Trusted Publishing (OIDC)**. No long-lived npm token is
-stored in this repository or in GitHub secrets.
+This repository publishes **`create-pi-extension`** to npm using Trusted Publishing with GitHub Actions OIDC.
 
-## How a release happens
+The root `pi-extension-template` package is the **template source** and is not published to npm. Only `packages/create-pi-extension` is published.
 
-1. Bump the version and update this file plus `CHANGELOG.md` in the same change:
+Do not add `NPM_TOKEN` or long-lived npm tokens to GitHub Secrets.
 
-   ```bash
-   npm version patch   # or minor / major
-   git push
-   ```
+## One-time npm setup
 
-2. `.github/workflows/auto-release.yml` detects the `package.json` version change on `main`, creates
-   the `v<version>` tag, publishes a GitHub Release, and dispatches `publish.yml` explicitly.
-3. `.github/workflows/publish.yml` runs `npm run ci`, skips the version when it already exists on npm,
-   and otherwise publishes with `id-token: write`.
+On npmjs.com, configure Trusted Publishing for **`create-pi-extension`**:
 
-Do not rely on `push.tags` alone. A tag created by `GITHUB_TOKEN` does not trigger a `push.tags`
-workflow, which is why `auto-release.yml` dispatches `publish.yml` by hand.
+- Publisher: GitHub Actions
+- Repository: `eiei114/pi-extension-template`
+- Workflow filename: `publish.yml`
+- Permissions: publish (and stage publish if used)
 
-## First publish / Trusted Publisher not configured
+Remove or update any Trusted Publisher entry that still targets the legacy root package name `pi-extension-template`.
 
-`npm publish` against a package that does not exist on npm yet, or one whose Trusted Publisher is not
-configured, fails with `npm error code E404` on the `PUT`. That is different from a version that is
-already published, which this workflow skips on purpose and reports as `skip=true`.
+## Publish
 
-To fix an `E404`:
+```bash
+npm version patch
+git push
+```
 
-1. Sign in to npmjs.com and open the `pi-lingua` package (create it if this is the first publish).
-2. Go to **Settings → Trusted Publisher → GitHub Actions**.
-3. Set **Repository** to `eiei114/pi-lingua` and **Workflow filename** to `publish.yml`.
-4. Re-run with `gh workflow run publish.yml --ref <tag> -f ref=<tag>`, or re-dispatch from the
-   Actions tab (`workflow_dispatch` is enabled).
+On `main`, `.github/workflows/auto-release.yml` checks the root `package.json` **repository version**. If `v<version>` does not exist yet, it creates the tag, creates the GitHub Release, then explicitly dispatches `.github/workflows/publish.yml` for that tag.
 
-Checklist:
+The `v*.*.*` tag also triggers `.github/workflows/publish.yml`, which syncs the bundled template, runs CI, and publishes `create-pi-extension@<version>` to npm when tags are pushed manually.
 
-- [ ] `id-token: write` present in `publish.yml`
-- [ ] no `NPM_TOKEN` / `NODE_AUTH_TOKEN` anywhere (enforced by `npm run publish:guard`)
-- [ ] Node.js 24 in the publish job
-- [ ] Trusted Publisher points at `eiei114/pi-lingua` and `publish.yml`
-- [ ] provenance visible on npm after the first successful publish
+Publishing also runs when a GitHub Release is published, and can be run manually from GitHub Actions with `workflow_dispatch`.
 
-## Publishing locally
+`publish.yml` runs `npm run sync:template` before publish so the tarball includes the current **Bundled template** under `packages/create-pi-extension/template/`.
 
-Don't. `npm publish` from a workstation bypasses the provenance that Trusted Publishing provides.
-`docs/publish-local-validation.md` covers the checks worth running locally before merging a bump.
+The workflow skips `create-pi-extension@<version>` if that exact package version already exists on npm.
+
+### Rerun and manual dispatch
+
+`publish.yml` checks the public npm registry API before `setup-node` configures OIDC auth. That keeps already-published reruns green:
+
+- `workflow_dispatch` on an existing tag/ref
+- duplicate `publish.yml` runs for the same `v<version>`
+- auto-release handoff retries after a successful publish
+
+When the version already exists, the job still runs validation but logs `publish intentionally skipped` and exits without calling `npm publish`.
+
+Do not use `npm view` after `setup-node` with `registry-url` for this guard. Trusted Publishing OIDC can make authenticated metadata reads look like `404`, which leads to duplicate `E403` publish failures.
+
+See also `docs/publish-rerun-rollout.md` for downstream rollout notes.
+
+### First publish / Trusted Publisher not configured
+
+`publish.yml` logs two different situations before `npm publish`:
+
+| Registry check | Meaning | Workflow behavior |
+| --- | --- | --- |
+| `GET /create-pi-extension` returns **404** | Package name is **not registered** on npm yet | Continues to publish; logs Trusted Publisher setup guidance |
+| `GET /create-pi-extension/<version>` returns **200** | That exact version is **already published** | Logs `publish intentionally skipped` and exits green without `npm publish` |
+| Package exists, version returns **404** | New version for an existing package | Continues to publish |
+
+If Trusted Publisher is missing or still targets the legacy `pi-extension-template` package, `npm publish` fails with:
+
+```text
+npm error code E404
+npm error 404 Not Found - PUT https://registry.npmjs.org/create-pi-extension - Not found
+```
+
+That `E404` is **not** the rerun skip path. It means npm rejected the publish because the package name is not registered under your account yet, or OIDC Trusted Publishing is not authorized for `create-pi-extension` + `publish.yml`.
+
+Fix (human-owned, one-time on npmjs.com):
+
+1. Open **create-pi-extension** on npm (or create the package name under your npm org/user if npm allows pre-registration).
+2. Add **Trusted Publisher**: GitHub Actions, repository `eiei114/pi-extension-template`, workflow filename `publish.yml`, permissions **publish** (and stage publish if used).
+3. Remove or update any Trusted Publisher entry that still targets the legacy root package `pi-extension-template`.
+4. Re-run `publish.yml` via `workflow_dispatch` on the release tag/ref (for example `v0.1.7`).
+
+Do not add `NPM_TOKEN` to GitHub Secrets; this repository uses OIDC Trusted Publishing only.
+
+## Workflow guardrail
+
+Do not ship a new Pi OSS package or version bump with only `package.json` changes.
+The repository must include the release workflow pair:
+
+- `.github/workflows/auto-release.yml` creates `v<version>` tags and GitHub Releases from `main` version bumps.
+- `.github/workflows/publish.yml` syncs the template and publishes `create-pi-extension` through Trusted Publishing.
+
+Important: tags or releases created by `GITHUB_TOKEN` do not reliably fan out into another workflow through normal `push.tags` or `release.published` triggers. The template keeps publishing reliable by having `auto-release.yml` explicitly dispatch `publish.yml` after creating the tag/release. If you change the release flow, keep one explicit handoff path: `workflow_dispatch` from auto-release, `repository_dispatch`, or `workflow_run` on the auto-release workflow.
+
+## GitHub Actions requirements
+
+- `permissions: id-token: write`
+- `permissions: actions: write` on auto-release so it can dispatch `publish.yml`
+- `auto-release.yml` must call `gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"`, or `publish.yml` must have an equivalent explicit handoff trigger such as `workflow_run`
+- GitHub-hosted runner
+- Node.js 24, so the release job uses a current npm CLI for Trusted Publishing
+- Bun (for `sync:template` before publish)
+- No `NPM_TOKEN`
+- `npm publish` from `packages/create-pi-extension` in the configured workflow file
+
+## Local validation before publish
+
+Before merging a version bump or dispatching `publish.yml`, run the checks in [`docs/publish-local-validation.md`](publish-local-validation.md). At minimum:
+
+```bash
+npm ci
+npm run ci
+```
+
+Then verify the `create-pi-extension` dry-run tarball includes `template/` (see the doc for the exact command). Publishing itself remains GitHub Actions only.
+
+## First release checklist
+
+- [ ] Local validation in [`docs/publish-local-validation.md`](publish-local-validation.md) passes
+- [ ] Root `package.json` version is final (synced into `create-pi-extension` on publish)
+- [ ] `packages/create-pi-extension/package.json` name is `create-pi-extension`
+- [ ] `repository.url` points to the real GitHub repository
+- [ ] npm Trusted Publisher targets `create-pi-extension` + `publish.yml`
+- [ ] `npm run ci` passes
+- [ ] `npm pack --dry-run` in `packages/create-pi-extension` contains `template/`
+- [ ] CHANGELOG.md has the release date

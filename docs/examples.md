@@ -1,130 +1,134 @@
 # Examples
 
-Every command takes no inline arguments. Run it, read the result.
+This template ships examples for each Pi package resource type and several extension API patterns.
 
-## A Target Language prompt gets a correction
+These source files (`extensions/`, `skills/`, `prompts/`, `themes/`) are the **single source of truth**:
+the `sync:template` script copies them into the `create-pi-extension` CLI bundle before publish.
+To update what the CLI generates, edit these files and re-run `bun run sync:template`.
+Scaffold a new project to get a copy of the latest examples:
 
-```
-fix the bug of login
-```
-
-```
-EN review
-- the bug of login
-+ the login bug
-noun の修飾は前置が自然
-
-◆ vocab
-  fix → resolve  動詞の強度
-  bug → defect  形式語
+```bash
+bunx create-pi-extension my-pi-package
 ```
 
-The agent still receives `fix the bug of login`, verbatim and immediately.
+Then try the examples in your scaffolded project with `pi -e .`.
 
-## A native-language prompt gets the translation
+For a full walkthrough, see the [README](../README.md).
 
+For maintainers, see [`docs/template-sync-checklist.md`](template-sync-checklist.md) for the sync procedure before publish.
+
+## Extension
+
+`extensions/hello.ts` registers:
+
+- `/template-hello`
+- `/template-status` (TUI-only custom entry via `appendEntry` + `registerEntryRenderer`)
+- session, turn, and tool lifecycle event handlers
+- a small session status indicator
+
+Try it with:
+
+```bash
+pi -e .
 ```
-ログインのバグを直して
+
+Then run:
+
+```txt
+/template-hello YourName
+/template-status Package ready
+?template
 ```
 
+## Agent Skill (package manifest)
+
+`skills/example-skill/SKILL.md` demonstrates a minimal Agent Skill. Its
+frontmatter uses the required `name` and `description` fields plus the optional
+`license` field, following the Agent Skills spec that Pi validates against
+(see `docs/skills.md`).
+
+Replace it with your real workflow instructions.
+
+## Agent Skill (extension `resources_discover`)
+
+`extensions/skill-bridge/` contributes `template-skill-bridge` at runtime:
+
+- `index.ts` returns `skillPaths` from the `resources_discover` event
+- `SKILL.md` lives beside the extension entrypoint
+
+Commands:
+
+```txt
+/template-skill-info
+/skill:template-skill-bridge
 ```
-JA → EN
-> ログインのバグを直して
-+ Fix the login bug
-動詞で始めると指示が明確
+
+Use this pattern when a skill should ship with an extension instead of the top-level `skills/` directory.
+
+## Typed custom tool
+
+`extensions/index.ts` registers:
+
+- `/template-info`
+- `template_greet` custom tool
+
+The tool demonstrates:
+
+- `pi.registerTool()` with TypeBox object parameters
+- a string enum schema via `StringEnum`
+- `prepareArguments()` for legacy argument compatibility before schema validation
+- custom `renderCall` / `renderResult` rendering
+- shared logic imported from `lib/greeting.ts`
+- TUI `renderCall` / `renderResult` via `Text`
+
+## TUI component composition
+
+`extensions/tui-dashboard.ts` demonstrates composing `@earendil-works/pi-tui` primitives:
+
+- `Box` for padded, themed containers
+- `Loader` for spinner-style progress feedback
+- column-aligned tables built with shared `lib/format-table.ts` and rendered via `Text`
+
+Command:
+
+```txt
+/template-dashboard
 ```
 
-This is the highest-value case: you were going to write the sentence anyway, so producing it in the
-Target Language costs you nothing extra.
+`pi-tui` does not ship a dedicated `Table` or `Spinner` component; this example uses `Loader` for spinners and a small table formatter for aligned columns.
 
-## Prompts that are skipped
+## Multi-file extension layout
 
-No model call happens for any of these:
+`extensions/package-layout/` demonstrates a subdirectory extension with local modules:
 
-| Prompt | Why |
+- `lib/config.ts` — typed configuration defaults
+- `lib/stats.ts` — resource metadata helpers
+- imports from package-wide `lib/format-table.ts`
+
+Commands:
+
+```txt
+/template-layout
+/template-layout-clear
+```
+
+## Prompt template
+
+`prompts/example.md` demonstrates a tiny prompt template with one positional
+argument (`/example <topic>`). Pi expands templates with `$1`, `$@`, and
+`${1:-default}` — it does not support Mustache-style `{{var}}` placeholders.
+
+## Theme
+
+`themes/example-theme.json` ships a complete, loadable dark theme as a starting
+point. Pi requires every theme to define all 51 color tokens, so edit the
+palette in place rather than trimming tokens. Remove `themes/` (and the
+`pi.themes` manifest entry) if your package does not ship themes.
+
+## Shared library helpers
+
+| File | Purpose |
 |---|---|
-| `ok` | shorter than `minWords` |
-| `/lingua:off` | slash command |
-| ```` ```ts … ``` ```` | code, no prose left |
-| `исправить ошибку` | dominant script is neither the target nor the native language |
-
-Run `/lingua:status` to see how many prompts were reviewed, how many were skipped, and the reason for
-the most recent skip.
-
-## Reading the full review later
-
-```
-/lingua:last
-```
-
-Writes a transcript entry with the complete review. The entry renders in the TUI and does **not** enter
-the model's context, so it costs nothing on later turns.
-
-## Sending vocabulary to Anki
-
-```
-/lingua:card
-```
-
-Reports one of:
-
-```
-anki: written — added 2 note(s) to English::PromptReview: fix, bug
-anki: written /home/you/.pi/agent/lingua/anki-cards.tsv — wrote 2 card row(s) as TSV; AnkiConnect did not answer at http://127.0.0.1:8765 (fetch failed); install and start the AnkiConnect add-on to push directly
-anki: skipped — this review has no vocabulary suggestions to add
-```
-
-The fallback is deliberate: a review that silently never reaches the deck is worse than an explicit
-"install the add-on".
-
-## Turning it off for a while
-
-```
-/lingua:off
-```
-
-Stops reviewing and clears the widget. `/lingua:on` resumes.
-
-## Pointing the log at an Obsidian folder
-
-```json
-{
-  "pi-lingua": {
-    "sinks": { "reviewLog": { "dir": "4_Project/English-Study/Review" } }
-  }
-}
-```
-
-The same `markdown-log` sink now writes vault notes. One file per day:
-
-```markdown
----
-date: 2026-09-21
-target_language: English
-native_language: Japanese
----
-
-## 09:12 · Japanese → English
-
-- **wrote:** ログインのバグを直して
-- **English:** Fix the login bug
-- **note:** 動詞で始めると指示が明確
-- **vocabulary:**
-  - fix → resolve (強度)
-```
-
-## Learning a language other than English
-
-```json
-{
-  "pi-lingua": {
-    "targetLanguage": "fr",
-    "nativeLanguage": "en",
-    "explainIn": "native",
-    "sinks": { "anki": { "deck": "French::PromptReview" } }
-  }
-}
-```
-
-Language values accept either a tag (`fr`) or a name (`French`). Supported languages are listed in
-`lib/languages.ts`; each entry declares the scripts used to tell the two languages apart locally.
+| `lib/greeting.ts` | Greeting helpers used by `template_greet` |
+| `lib/format-table.ts` | Monospace table formatter for widgets and TUI examples |
+| `lib/config-contract.ts` | Schema-derived runtime config validation with valid/invalid contract tests |
