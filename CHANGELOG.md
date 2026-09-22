@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning.
 
+## [0.2.0] - 2026-09-23
+
+### Changed
+
+- Display full review examples, translations, explanations, and vocabulary without ellipsis truncation.
+- Wrap review content to the current terminal width and reflow it when the terminal is resized.
+
 ## [0.1.0] - 2026-09-21
 
 ### Added

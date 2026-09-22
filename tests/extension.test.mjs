@@ -190,7 +190,9 @@ test("submitting a prompt never waits for the review and never rewrites it", asy
   releaseReview();
   assert.ok(await waitFor(() => ctx.state.widgets.size > 0), "the review should land afterwards");
 
-  const widget = ctx.state.widgets.get(REVIEW_WIDGET_KEY);
+  const component = ctx.state.widgets.get(REVIEW_WIDGET_KEY)();
+  const widget = component.render(72);
+  assert.ok(component.render(12).length > widget.length, "resizing reflows the full review");
   assert.equal(widget[0], "EN review");
   assert.ok(widget.some((line) => line.includes("the login bug")));
   assert.ok(widget.includes("◆ vocab"));
