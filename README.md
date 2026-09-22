@@ -28,6 +28,13 @@ Two things it never does:
 
 ## Features
 
+- **Speaking guidance.** `Speak` marks natural pauses with `/`; `IPA` gives model-generated
+  pronunciation. When `nativeLanguage` resolves to Japanese (for example `ja`, `ja-JP`, or
+  `Japanese`), an approximate Katakana reading is shown too, never instead of IPA.
+  Guidance covers the full target rendering and is saved in review logs. Missing or malformed
+  guidance is omitted without blocking the task; older reviews still display normally.
+  Katakana cannot represent all target-language sounds and is only a reading aid.
+
 - **Non-blocking by construction.** The `input` hook always returns `continue`, and the reviewer call
   is never awaited. See [ADR-0001](docs/adr/0001-review-never-blocks-the-task-run.md).
 - **In-process review.** One call through Pi's own model registry, reusing resolved provider auth. No

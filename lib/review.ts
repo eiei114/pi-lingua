@@ -22,6 +22,8 @@ export interface PromptReview {
   nativeLanguageName: string;
   /** The Target Language Rendering. */
   rendering: string;
+  /** Optional for compatibility with saved reviews predating speaking guidance. */
+  speaking?: { chunked: string; ipa: string; kana?: string };
   changes: ReviewChange[];
   note: string;
   vocabulary: VocabularySuggestion[];
@@ -82,8 +84,13 @@ export function buildReviewerPrompt(input: ReviewerInput): ReviewerPrompt {
     "- Do not invent vocabulary to fill the list.",
     "",
     "Reply with JSON only, no prose and no code fences, in exactly this shape:",
+    "Include `speaking` for the entire rendering, not just changed fragments. Preserve every word and punctuation in `chunked`, inserting ' / ' at natural speaking pauses. Use matching pauses in `ipa` (International Phonetic Alphabet, including stress where applicable). Never abbreviate or omit the end. This is model-generated pronunciation guidance, not audio verification.",
+    native?.tag === "ja"
+      ? "The native language is Japanese: also include `kana`, an approximate Katakana pronunciation of the entire target rendering with matching pauses. IPA is still required; kana does not replace IPA."
+      : "The native language is not Japanese: omit `kana`; provide IPA pronunciation only.",
     "{",
     '  "rendering": "the full rewritten message",',
+    '  "speaking": {"chunked": "full rendering with / pauses", "ipa": "full IPA with / pauses", "kana": "Japanese-native users only: approximate Katakana with / pauses"},',
     '  "changes": [{"from": "changed fragment as written", "to": "changed fragment"}] or [],',
     `  "note": "one short sentence, written in ${explainIn}",`,
     `  "vocabulary": [{"from": "word as written", "to": "better word", "gloss": "short meaning in ${explainIn}"}] or []`,
@@ -192,6 +199,20 @@ export interface ParseReviewOptions {
   createdAt?: string;
 }
 
+/** Reject incomplete or oversized guides rather than silently cutting off pronunciation. */
+function parseSpeaking(value: unknown, rendering: string, japanese: boolean): PromptReview["speaking"] {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const fullText = (value: unknown): string | undefined =>
+    typeof value === "string" && value.trim() && value.length <= 12000 ? value.trim() : undefined;
+  const chunked = fullText(record.chunked);
+  const ipa = fullText(record.ipa);
+  const kana = japanese ? fullText(record.kana) : undefined;
+  const normalize = (text: string): string => text.replace(/\s\/\s/g, " ").replace(/\s/g, "");
+  if (!chunked || !ipa || normalize(chunked) !== normalize(rendering)) return undefined;
+  return { chunked, ipa, ...(kana ? { kana } : {}) };
+}
+
 /**
  * Normalizes model output into a PromptReview. Returns undefined when the response cannot be
  * understood, so the caller can report a failure instead of showing a half-filled widget.
@@ -226,6 +247,7 @@ export function parseReviewResponse(raw: string, options: ParseReviewOptions): P
     targetLanguageTag: target?.tag ?? options.config.targetLanguage,
     nativeLanguageName: native?.definition.name ?? options.config.nativeLanguage,
     rendering,
+    speaking: parseSpeaking(record.speaking, rendering, native?.tag === "ja"),
     changes,
     note,
     vocabulary: parseVocabulary(record.vocabulary),

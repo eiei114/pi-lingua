@@ -2,6 +2,7 @@ import { appendFile, mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expandHome, type LinguaConfig } from "../config.ts";
 import type { PromptReview } from "../review.ts";
+import { renderSpeakingGuide } from "../render.ts";
 import { describeError, failed, type ReviewSink, type SinkResult } from "./types.ts";
 
 export const MARKDOWN_LOG_SINK_ID = "markdown-log";
@@ -50,6 +51,7 @@ export function renderReviewLogSection(review: PromptReview): string {
   lines.push("");
   lines.push(`- **wrote:** ${review.prompt}`);
   lines.push(`- **${review.targetLanguageName}:** ${review.rendering}`);
+  lines.push(...renderSpeakingGuide(review).map((line) => `- ${line}`));
 
   // A native-language review is a translation, so any `changes` the model volunteered would be a
   // restatement of the whole sentence rather than a correction. Only target-language reviews have
