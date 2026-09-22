@@ -4,7 +4,7 @@ import { registerLinguaCommands, type LinguaStats } from "../lib/commands.ts";
 import { loadLinguaConfig } from "../lib/config.ts";
 import { evaluateEligibility } from "../lib/eligibility.ts";
 import { requestReviewerCompletion, resolveReviewerTarget } from "../lib/model.ts";
-import { renderReviewWidget } from "../lib/render.ts";
+import { renderReviewWidget, renderSpeakingGuide } from "../lib/render.ts";
 import { buildReviewerPrompt, parseReviewResponse, type PromptReview } from "../lib/review.ts";
 import { runSinks } from "../lib/sinks/dispatch.ts";
 import { describeError, type SinkResult } from "../lib/sinks/types.ts";
@@ -39,6 +39,7 @@ export default function (pi: ExtensionAPI) {
     box.addChild(new Text(theme.bold(`pi-lingua · ${header}`)));
     box.addChild(new Text(`${theme.fg("dim", "wrote")} ${review.prompt}`));
     box.addChild(new Text(`${theme.fg("accent", review.targetLanguageName)} ${review.rendering}`));
+    for (const line of renderSpeakingGuide(review)) box.addChild(new Text(line));
 
     if (review.changes.length > 0) {
       for (const change of review.changes) {

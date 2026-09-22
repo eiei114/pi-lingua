@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning.
 
+## [0.3.0] - 2026-09-23
+
+### Added
+
+- Speaking pauses and IPA pronunciation for the full target-language rendering.
+- Approximate Katakana readings alongside IPA when the configured native language is Japanese.
+- Speaking guidance in the widget, detail view, transcript entry, and Markdown review log; older reviews remain supported.
+
 ## [0.2.0] - 2026-09-23
 
 ### Changed

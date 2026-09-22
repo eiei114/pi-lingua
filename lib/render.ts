@@ -9,6 +9,16 @@ export interface RenderReviewOptions {
   width?: number;
 }
 
+/** Shared full-text speaking guidance for widgets, transcript entries, and logs. */
+export function renderSpeakingGuide(review: PromptReview): string[] {
+  if (!review.speaking) return [];
+  return [
+    `Speak: ${review.speaking.chunked}`,
+    `IPA: ${review.speaking.ipa}`,
+    ...(review.speaking.kana ? [`カナ（目安）: ${review.speaking.kana}`] : []),
+  ];
+}
+
 /** Full review content, word-wrapped to terminal cell width without ellipses. */
 export function renderReviewWidget(review: PromptReview, options: RenderReviewOptions): string[] {
   const width = options.width ?? DEFAULT_WIDGET_WIDTH;
@@ -32,6 +42,7 @@ export function renderReviewWidget(review: PromptReview, options: RenderReviewOp
     }
   }
 
+  lines.push(...renderSpeakingGuide(review));
   if (review.note) lines.push(review.note);
 
   if (review.vocabulary.length > 0) {
@@ -60,6 +71,7 @@ export function renderReviewDetail(review: PromptReview): string {
   lines.push("");
   lines.push(`** wrote:** ${review.prompt}`);
   lines.push(`**${review.targetLanguageName}:** ${review.rendering}`);
+  lines.push(...renderSpeakingGuide(review));
 
   if (review.changes.length > 0) {
     lines.push("");
