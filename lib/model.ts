@@ -44,7 +44,8 @@ export function resolveReviewerTarget(
   return undefined;
 }
 
-export const REVIEWER_MAX_TOKENS = 700;
+// Full rendering plus chunked text, IPA, and optional kana need more than a short review budget.
+export const REVIEWER_MAX_TOKENS = 8192;
 
 /**
  * The one place this package touches a model. It stays deliberately small: a single in-process

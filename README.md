@@ -34,6 +34,7 @@ Two things it never does:
   Guidance covers the full target rendering and is saved in review logs. Missing or malformed
   guidance is omitted without blocking the task; older reviews still display normally.
   Katakana cannot represent all target-language sounds and is only a reading aid.
+  Pronunciation adds output tokens; the reviewer output budget is capped at 8,192 tokens.
 
 - **Non-blocking by construction.** The `input` hook always returns `continue`, and the reviewer call
   is never awaited. See [ADR-0001](docs/adr/0001-review-never-blocks-the-task-run.md).
