@@ -1,3 +1,4 @@
+import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { ExplainLanguage } from "./config.ts";
 import type { PromptReview } from "./review.ts";
 
@@ -8,21 +9,7 @@ export interface RenderReviewOptions {
   width?: number;
 }
 
-function truncate(text: string, width: number): string {
-  const single = text.replace(/\s+/g, " ").trim();
-  if (single.length <= width) return single;
-  return `${single.slice(0, Math.max(0, width - 1))}…`;
-}
-
-/** Truncates so the prefix plus content still fits inside the widget width. */
-function lineWith(prefix: string, text: string, width: number): string {
-  return prefix + truncate(text, Math.max(1, width - prefix.length));
-}
-
-/**
- * The always-visible tier. Kept at or below eight lines because it renders directly above the
- * prompt editor; anything longer belongs in the transcript view (`/lingua:last`).
- */
+/** Full review content, word-wrapped to terminal cell width without ellipses. */
 export function renderReviewWidget(review: PromptReview, options: RenderReviewOptions): string[] {
   const width = options.width ?? DEFAULT_WIDGET_WIDTH;
   const targetTag = review.targetLanguageTag.toUpperCase();
@@ -31,34 +18,34 @@ export function renderReviewWidget(review: PromptReview, options: RenderReviewOp
   if (review.language === "native") {
     const nativeTag = review.nativeLanguageName.slice(0, 2).toUpperCase();
     lines.push(`${nativeTag} → ${targetTag}`);
-    lines.push(lineWith("> ", review.prompt, width));
-    lines.push(lineWith("+ ", review.rendering, width));
+    lines.push(`> ${review.prompt}`);
+    lines.push(`+ ${review.rendering}`);
   } else {
     lines.push(`${targetTag} review`);
     if (review.changes.length > 0) {
       for (const change of review.changes) {
-        lines.push(lineWith("- ", change.from, width));
-        lines.push(lineWith("+ ", change.to, width));
+        lines.push(`- ${change.from}`);
+        lines.push(`+ ${change.to}`);
       }
     } else {
-      lines.push(lineWith("ok  ", review.rendering, width));
+      lines.push(`ok  ${review.rendering}`);
     }
   }
 
-  if (review.note) lines.push(truncate(review.note, width));
+  if (review.note) lines.push(review.note);
 
   if (review.vocabulary.length > 0) {
     lines.push("");
     lines.push("◆ vocab");
     for (const item of review.vocabulary) {
-      const gloss = item.gloss ? `  ${truncate(item.gloss, 30)}` : "";
+      const gloss = item.gloss ? `  ${item.gloss}` : "";
       lines.push(
-        `  ${truncate(item.from, 24)} → ${truncate(item.to, 24)}${gloss}`,
+        `  ${item.from} → ${item.to}${gloss}`,
       );
     }
   }
 
-  return lines;
+  return lines.flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)));
 }
 
 /** The on-demand tier, used when the user asks for the full review. */

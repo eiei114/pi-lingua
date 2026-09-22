@@ -120,7 +120,10 @@ export default function (pi: ExtensionAPI) {
     if (ctx.hasUI) {
       ctx.ui.setWidget(
         REVIEW_WIDGET_KEY,
-        renderReviewWidget(review, { explainIn: config.explainIn }),
+        () => ({
+          render: (width) => renderReviewWidget(review, { explainIn: config.explainIn, width }),
+          invalidate: () => {},
+        }),
       );
     }
 
