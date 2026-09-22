@@ -45,7 +45,7 @@ export function renderReviewWidget(review: PromptReview, options: RenderReviewOp
     }
   }
 
-  return lines.flatMap((line) => wrapTextWithAnsi(line, Math.max(2, width)));
+  return lines.flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)));
 }
 
 /** The on-demand tier, used when the user asks for the full review. */

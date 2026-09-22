@@ -90,6 +90,11 @@ test("the detail view carries the full review", () => {
   assert.match(detail, /fix → resolve \(強度\)/);
 });
 
+test("a one-column terminal is not widened by the renderer", () => {
+  const lines = renderReviewWidget(review({ note: "", vocabulary: [] }), { explainIn: "native", width: 1 });
+  for (const line of lines) assert.ok(visibleWidth(line) <= 1);
+});
+
 test("native examples, notes, and vocabulary retain all text at narrow cell widths", () => {
   const prompt = "日本語の長い例文です".repeat(20);
   const rendering = "TranslatedExample".repeat(20);
