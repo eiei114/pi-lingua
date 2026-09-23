@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning.
 
+## [0.4.0] - 2026-09-23
+
+### Changed
+
+- Compact long URLs and file paths in the widget's source excerpts while keeping full text in
+  `/lingua:last` and review logs.
+- Use subtle, theme-aware background colors to distinguish review sections in the widget and detail
+  entry.
+
 ## [0.3.0] - 2026-09-23
 
 ### Added

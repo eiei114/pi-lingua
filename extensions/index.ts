@@ -1,16 +1,56 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Box, Text } from "@earendil-works/pi-tui";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { Box, Container, Text } from "@earendil-works/pi-tui";
 import { registerLinguaCommands, type LinguaStats } from "../lib/commands.ts";
 import { loadLinguaConfig } from "../lib/config.ts";
 import { evaluateEligibility } from "../lib/eligibility.ts";
 import { requestReviewerCompletion, resolveReviewerTarget } from "../lib/model.ts";
-import { renderReviewWidget, renderSpeakingGuide } from "../lib/render.ts";
+import {
+  renderReviewWidgetSections,
+  renderSpeakingGuide,
+  type ReviewWidgetSectionKind,
+} from "../lib/render.ts";
 import { buildReviewerPrompt, parseReviewResponse, type PromptReview } from "../lib/review.ts";
 import { runSinks } from "../lib/sinks/dispatch.ts";
 import { describeError, type SinkResult } from "../lib/sinks/types.ts";
 
 export const REVIEW_WIDGET_KEY = "pi-lingua:review";
 export const REVIEW_ENTRY_TYPE = "pi-lingua-review";
+
+function sectionBackground(kind: ReviewWidgetSectionKind) {
+  switch (kind) {
+    case "source":
+      return "userMessageBg";
+    case "rendering":
+      return "customMessageBg";
+    case "changes":
+      return "toolErrorBg";
+    case "speaking":
+      return "toolPendingBg";
+    case "note":
+      return "selectedBg";
+    case "vocabulary":
+      return "toolSuccessBg";
+  }
+}
+
+function addReviewSection(
+  container: Container,
+  theme: Theme,
+  kind: ReviewWidgetSectionKind,
+  content: string,
+): void {
+  const box = new Box(1, 0, (text) => theme.bg(sectionBackground(kind), text));
+  box.addChild(new Text(content, 0, 0));
+  container.addChild(box);
+}
+
+function createReviewWidget(review: PromptReview, theme: Theme): Container {
+  const container = new Container();
+  for (const section of renderReviewWidgetSections(review)) {
+    addReviewSection(container, theme, section.kind, section.lines.join("\n"));
+  }
+  return container;
+}
 
 export default function (pi: ExtensionAPI) {
   let enabled = true;
@@ -25,44 +65,58 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerEntryRenderer<PromptReview>(REVIEW_ENTRY_TYPE, (entry, { expanded }, theme) => {
     const review = entry.data;
-    const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
+    const container = new Container();
 
     if (!review) {
-      box.addChild(new Text(theme.fg("dim", "pi-lingua review (no data)")));
-      return box;
+      addReviewSection(container, theme, "source", theme.fg("dim", "pi-lingua review (no data)"));
+      return container;
     }
 
     const header =
       review.language === "native"
         ? `${review.nativeLanguageName} → ${review.targetLanguageName}`
         : `${review.targetLanguageName} review`;
-    box.addChild(new Text(theme.bold(`pi-lingua · ${header}`)));
-    box.addChild(new Text(`${theme.fg("dim", "wrote")} ${review.prompt}`));
-    box.addChild(new Text(`${theme.fg("accent", review.targetLanguageName)} ${review.rendering}`));
-    for (const line of renderSpeakingGuide(review)) box.addChild(new Text(line));
+    addReviewSection(
+      container,
+      theme,
+      "source",
+      `${theme.bold(`pi-lingua · ${header}`)}\n${theme.fg("dim", "wrote")} ${review.prompt}`,
+    );
+    addReviewSection(
+      container,
+      theme,
+      "rendering",
+      `${theme.fg("accent", review.targetLanguageName)} ${review.rendering}`,
+    );
+
+    const speaking = renderSpeakingGuide(review);
+    if (speaking.length > 0) addReviewSection(container, theme, "speaking", speaking.join("\n"));
 
     if (review.changes.length > 0) {
+      const changes: string[] = [];
       for (const change of review.changes) {
-        box.addChild(
-          new Text(`${theme.fg("error", `- ${change.from}`)}\n${theme.fg("success", `+ ${change.to}`)}`),
-        );
+        changes.push(theme.fg("error", `- ${change.from}`));
+        changes.push(theme.fg("success", `+ ${change.to}`));
       }
+      addReviewSection(container, theme, "changes", changes.join("\n"));
     }
 
-    if (review.note) box.addChild(new Text(theme.fg("muted", review.note)));
+    if (review.note) addReviewSection(container, theme, "note", theme.fg("muted", review.note));
 
     if (review.vocabulary.length > 0) {
+      const vocabulary = ["◆ vocabulary"];
       for (const item of review.vocabulary) {
         const gloss = item.gloss ? theme.fg("dim", `  ${item.gloss}`) : "";
-        box.addChild(new Text(`◆ ${item.from} → ${item.to}${gloss}`));
+        vocabulary.push(`${item.from} → ${item.to}${gloss}`);
       }
+      addReviewSection(container, theme, "vocabulary", vocabulary.join("\n"));
     }
 
     if (expanded) {
-      box.addChild(new Text(theme.fg("dim", `model ${review.createdAt}`)));
+      addReviewSection(container, theme, "note", theme.fg("dim", `model ${review.createdAt}`));
     }
 
-    return box;
+    return container;
   });
 
   async function reviewPrompt(text: string, ctx: ExtensionContext): Promise<void> {
@@ -121,10 +175,7 @@ export default function (pi: ExtensionAPI) {
     if (ctx.hasUI) {
       ctx.ui.setWidget(
         REVIEW_WIDGET_KEY,
-        () => ({
-          render: (width) => renderReviewWidget(review, { explainIn: config.explainIn, width }),
-          invalidate: () => {},
-        }),
+        (_tui, theme) => createReviewWidget(review, theme),
       );
     }
 

@@ -1,6 +1,6 @@
 {
   "name": "pi-lingua",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Pi extension: review the language you write to Pi while the agent does the real work, without ever blocking or rewriting the prompt.",
   "type": "module",
   "license": "MIT",
