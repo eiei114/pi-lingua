@@ -66,6 +66,17 @@ test("file paths in original change fragments are compacted in the widget", () =
   assert.ok(!lines.join("\n").includes("/Users/keisu"));
 });
 
+test("path compaction never lengthens a path when it cannot omit a segment", () => {
+  const path = "/very-long-directory-name/file.ts";
+  const lines = renderReviewWidget(
+    review({ language: "native", prompt: `Open ${path}`, changes: [] }),
+    { explainIn: "native" },
+  );
+
+  assert.ok(lines.some((line) => line.includes(path)));
+  assert.ok(!lines.join("\n").includes(`…${path}`));
+});
+
 test("a review with no changes is marked as already acceptable", () => {
   const lines = renderReviewWidget(review({ changes: [] }), { explainIn: "native" });
   assert.equal(lines[0], "EN review");

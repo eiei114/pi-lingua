@@ -91,7 +91,8 @@ function compactFilePath(value: string): string {
     return value;
   }
 
-  return `…/${segments.slice(-2).join("/")}${punctuation}`;
+  const compacted = `…/${segments.slice(-2).join("/")}${punctuation}`;
+  return compacted.length < value.length ? compacted : value;
 }
 
 function isPathSeparator(value: string): boolean {
