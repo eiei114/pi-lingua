@@ -38,6 +38,34 @@ test("a native-language review renders the prompt it translated", () => {
   assert.equal(lines[2], "+ Fix the login bug");
 });
 
+test("the widget compacts long URLs and file paths in the source excerpt only", () => {
+  const url = "https://example.com/docs/api/reference/guide?utm_source=a-very-long-tracking-value";
+  const path = "C:\\Users\\Keisu\\Projects\\OSS\\pi-lingua\\src\\render\\preview.ts";
+  const prompt = `Review ${url}, then open ${path}.`;
+  const reviewWithReferences = review({ language: "native", prompt, changes: [] });
+
+  const widget = renderReviewWidget(reviewWithReferences, { explainIn: "native" }).join("\n");
+  assert.ok(widget.includes("https://example.com/…/reference/guide?…"));
+  assert.ok(widget.includes("…/render/preview.ts"));
+  assert.ok(!widget.includes("utm_source"));
+  assert.ok(!widget.includes("C:\\Users\\Keisu"));
+
+  const detail = renderReviewDetail(reviewWithReferences);
+  assert.ok(detail.includes(url));
+  assert.ok(detail.includes(path));
+});
+
+test("file paths in original change fragments are compacted in the widget", () => {
+  const path = "/Users/keisu/Projects/pi-lingua/src/features/long-file-name.ts";
+  const lines = renderReviewWidget(
+    review({ changes: [{ from: `Update ${path}`, to: "Update the view" }] }),
+    { explainIn: "native" },
+  );
+
+  assert.ok(lines.some((line) => line.includes("…/features/long-file-name.ts")));
+  assert.ok(!lines.join("\n").includes("/Users/keisu"));
+});
+
 test("a review with no changes is marked as already acceptable", () => {
   const lines = renderReviewWidget(review({ changes: [] }), { explainIn: "native" });
   assert.equal(lines[0], "EN review");

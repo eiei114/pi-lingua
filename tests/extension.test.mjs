@@ -78,6 +78,21 @@ function createCtx(cwd, { complete } = {}) {
   };
 }
 
+function createTheme(backgrounds = []) {
+  return {
+    bg(color, text) {
+      backgrounds.push(color);
+      return text;
+    },
+    fg(_color, text) {
+      return text;
+    },
+    bold(text) {
+      return text;
+    },
+  };
+}
+
 function projectWithConfig() {
   const cwd = mkdtempSync(join(tmpdir(), "pi-lingua-ext-"));
   const logDir = join(cwd, "reviews");
@@ -190,12 +205,14 @@ test("submitting a prompt never waits for the review and never rewrites it", asy
   releaseReview();
   assert.ok(await waitFor(() => ctx.state.widgets.size > 0), "the review should land afterwards");
 
-  const component = ctx.state.widgets.get(REVIEW_WIDGET_KEY)();
+  const backgrounds = [];
+  const component = ctx.state.widgets.get(REVIEW_WIDGET_KEY)(undefined, createTheme(backgrounds));
   const widget = component.render(72);
   assert.ok(component.render(12).length > widget.length, "resizing reflows the full review");
-  assert.equal(widget[0], "EN review");
+  assert.equal(widget[0].trim(), "EN review");
   assert.ok(widget.some((line) => line.includes("the login bug")));
-  assert.ok(widget.includes("◆ vocab"));
+  assert.ok(widget.some((line) => line.includes("◆ vocab")));
+  assert.ok(new Set(backgrounds).size >= 3, "review sections should use distinct theme backgrounds");
 
   await waitForLog(logDir);
   const log = readOnlyLog(logDir);
@@ -287,6 +304,12 @@ test("lingua:last appends an entry that does not enter the LLM context", async (
   assert.equal(pi.state.entries.length, 1);
   assert.equal(pi.state.entries[0].type, REVIEW_ENTRY_TYPE);
   assert.equal(pi.state.entries[0].data.rendering, "Fix the login bug");
+
+  const backgrounds = [];
+  const renderer = pi.state.entryRenderers[0].renderer;
+  const component = renderer({ data: pi.state.entries[0].data }, { expanded: false }, createTheme(backgrounds));
+  component.render(80);
+  assert.ok(new Set(backgrounds).size >= 5, "detail sections should use distinct theme backgrounds");
 });
 
 test("lingua:last explains itself when nothing has been reviewed yet", async () => {

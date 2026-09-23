@@ -36,6 +36,11 @@ Two things it never does:
   Katakana cannot represent all target-language sounds and is only a reading aid.
   Pronunciation adds output tokens; the reviewer output budget is capped at 8,192 tokens.
 
+- **Readable review sections.** The widget and `/lingua:last` use subtle backgrounds from the active
+  Pi theme to distinguish source text, rendering, speaking guidance, notes, changes, and vocabulary.
+  Long URLs and file paths are abbreviated in the compact widget only; full text remains available
+  through `/lingua:last` and review logs.
+
 - **Non-blocking by construction.** The `input` hook always returns `continue`, and the reviewer call
   is never awaited. See [ADR-0001](docs/adr/0001-review-never-blocks-the-task-run.md).
 - **In-process review.** One call through Pi's own model registry, reusing resolved provider auth. No
