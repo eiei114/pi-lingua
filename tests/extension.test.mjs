@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFil
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { visibleWidth } from "@earendil-works/pi-tui";
 
 const { default: extension, REVIEW_ENTRY_TYPE, REVIEW_WIDGET_KEY } = await import(
   "../extensions/index.ts"
@@ -91,6 +92,10 @@ function createTheme(backgrounds = []) {
       return text;
     },
   };
+}
+
+function backgroundBands(backgrounds) {
+  return backgrounds.filter((color, index) => color !== backgrounds[index - 1]);
 }
 
 function projectWithConfig() {
@@ -208,17 +213,42 @@ test("submitting a prompt never waits for the review and never rewrites it", asy
   const backgrounds = [];
   const component = ctx.state.widgets.get(REVIEW_WIDGET_KEY)(undefined, createTheme(backgrounds));
   const widget = component.render(72);
-  assert.ok(component.render(12).length > widget.length, "resizing reflows the full review");
   assert.equal(widget[0].trim(), "EN review");
   assert.ok(widget.some((line) => line.includes("the login bug")));
   assert.ok(widget.some((line) => line.includes("◆ vocab")));
-  assert.ok(new Set(backgrounds).size >= 3, "review sections should use distinct theme backgrounds");
+  assert.deepEqual(backgroundBands(backgrounds), ["selectedBg", "customMessageBg", "selectedBg"]);
+  assert.equal(widget.filter((line) => line === "").length, 2, "unfilled gaps separate adjacent blocks");
+  assert.ok(component.render(12).length > widget.length, "resizing reflows the full review");
 
   await waitForLog(logDir);
   const log = readOnlyLog(logDir);
   assert.match(log, /target_language: English/);
   assert.match(log, /fix the bug of login/);
   assert.match(log, /fix → resolve/);
+});
+
+test("short native reviews keep alternating bands and a gap at narrow widths", async () => {
+  const pi = createPi();
+  extension(pi);
+  const { cwd } = projectWithConfig();
+  const ctx = createCtx(cwd, {
+    complete: async () => ({
+      content: [{ type: "text", text: JSON.stringify({ rendering: "Fix the login bug", changes: [], vocabulary: [] }) }],
+      stopReason: "stop",
+    }),
+  });
+
+  await pi.state.handlers.get("input")(
+    { type: "input", text: "ログインのバグを直して", source: "interactive" }, ctx,
+  );
+  assert.ok(await waitFor(() => ctx.state.widgets.size > 0));
+  const backgrounds = [];
+  const component = ctx.state.widgets.get(REVIEW_WIDGET_KEY)(undefined, createTheme(backgrounds));
+  const lines = component.render(12);
+  assert.deepEqual(backgroundBands(backgrounds), ["selectedBg", "customMessageBg"]);
+  assert.equal(lines.filter((line) => line === "").length, 1);
+  assert.ok(lines.every((line) => visibleWidth(line) <= 12));
+  assert.ok(lines.join("").replace(/\s/g, "").includes("Fix the login bug".replace(/\s/g, "")));
 });
 
 test("a command-looking prompt is left alone and produces no review", async () => {
@@ -308,8 +338,11 @@ test("lingua:last appends an entry that does not enter the LLM context", async (
   const backgrounds = [];
   const renderer = pi.state.entryRenderers[0].renderer;
   const component = renderer({ data: pi.state.entries[0].data }, { expanded: false }, createTheme(backgrounds));
-  component.render(80);
-  assert.ok(new Set(backgrounds).size >= 5, "detail sections should use distinct theme backgrounds");
+  const detail = component.render(80);
+  assert.deepEqual(backgroundBands(backgrounds), [
+    "selectedBg", "customMessageBg", "selectedBg", "customMessageBg", "selectedBg",
+  ]);
+  assert.equal(detail.filter((line) => line === "").length, 4);
 });
 
 test("lingua:last explains itself when nothing has been reviewed yet", async () => {

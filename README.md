@@ -36,8 +36,8 @@ Two things it never does:
   Katakana cannot represent all target-language sounds and is only a reading aid.
   Pronunciation adds output tokens; the reviewer output budget is capped at 8,192 tokens.
 
-- **Readable review sections.** The widget and `/lingua:last` use subtle backgrounds from the active
-  Pi theme to distinguish source text, rendering, speaking guidance, notes, changes, and vocabulary.
+- **Readable review sections.** The widget and `/lingua:last` alternate two neutral backgrounds from
+  the active Pi theme, with an unfilled row between sections to make their vertical boundaries clear.
   Long URLs and file paths are abbreviated in the compact widget only; full text remains available
   through `/lingua:last` and review logs.
 

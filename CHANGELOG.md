@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning.
 
+## Unreleased
+
+### Changed
+
+- Alternate neutral theme backgrounds and separate review blocks with an unfilled row in the widget
+  and `/lingua:last` for clearer vertical contrast.
+
 ## [0.4.0] - 2026-09-23
 
 ### Changed
