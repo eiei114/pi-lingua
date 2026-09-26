@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning.
 
+## [0.5.0] - 2026-09-26
+
+### Added
+
+- `/lingua:model` — Pi model catalog selector for the Reviewer Model (session override).
+- `/lingua:effort` — Pi thinking selector for reviewer effort only (task-run thinking unchanged).
+- Optional `pi-lingua.reviewer.thinkingLevel` in settings; `/lingua:status` shows current effort.
+
 ## [0.4.0] - 2026-09-23
 
 ### Changed

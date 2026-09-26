@@ -14,9 +14,9 @@ ADR-0001 の非ブロッキングを守るには1〜2秒で返る必要があり
 
 ## 制約（実装時に判明）
 
-`ModelRegistry` が公開するのは API 固有型の `complete()` だけで、provider 中立の `completeSimple` / `streamSimple` は 0.84.4 では公開されていない。そのため **per-request の thinking level を指定できず**、`reasoning`（`SimpleStreamOptions` にのみ存在）は API 固有 options では受理されない。
+Reviewer 呼び出しは `lib/model.ts` に集約する。thinking なしは `complete()`、effort 指定時は `streamSimple(..., { reasoning }).result()` を使う（タスク側の thinking には触れない）。
 
-遅延は「速い Reviewer Model を選ぶ」ことで制御する。これは設定で差し替え可能で、`lib/model.ts` が唯一の接触点。provider 中立の経路が将来公開されたら、そこだけ変える。ストリーミング不要（1回の完結した応答が欲しい）なので `complete` は機能的にも適切。
+遅延が問題なら `/lingua:model` で軽い Reviewer Model を選ぶか、`/lingua:effort` で `off` / `low` に下げる。永続化は `pi-lingua.reviewer.thinkingLevel` か TUI のセッション override。
 
 ## 代替案
 

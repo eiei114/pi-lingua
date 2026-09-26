@@ -2,6 +2,10 @@ import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-c
 import { Box, Container, Text } from "@earendil-works/pi-tui";
 import { registerLinguaCommands, type LinguaStats } from "../lib/commands.ts";
 import { loadLinguaConfig } from "../lib/config.ts";
+import {
+  createEmptyReviewerOverrides,
+  type ReviewerOverrides,
+} from "../lib/reviewer-overrides.ts";
 import { evaluateEligibility } from "../lib/eligibility.ts";
 import { requestReviewerCompletion, resolveReviewerTarget } from "../lib/model.ts";
 import {
@@ -54,6 +58,7 @@ function createReviewWidget(review: PromptReview, theme: Theme): Container {
 
 export default function (pi: ExtensionAPI) {
   let enabled = true;
+  let reviewerOverrides: ReviewerOverrides = createEmptyReviewerOverrides();
   let lastReview: PromptReview | undefined;
   let stats: LinguaStats = {
     reviewed: 0,
@@ -128,7 +133,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const target = resolveReviewerTarget(ctx, config);
+    const target = resolveReviewerTarget(ctx, config, reviewerOverrides);
     if (!target) {
       stats = {
         ...stats,
@@ -210,6 +215,10 @@ export default function (pi: ExtensionAPI) {
 
   registerLinguaCommands(pi, {
     getConfig: (ctx) => loadLinguaConfig(ctx.cwd),
+    getReviewerOverrides: () => reviewerOverrides,
+    setReviewerOverrides: (overrides) => {
+      reviewerOverrides = overrides;
+    },
     isEnabled: () => enabled,
     setEnabled: (value) => {
       enabled = value;

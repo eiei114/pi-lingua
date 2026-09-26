@@ -1,5 +1,8 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { expandHome, type LinguaConfig } from "./config.ts";
+import { resolveReviewerTarget } from "./model.ts";
+import { formatReviewerEffort, pickReviewerEffort, pickReviewerModel } from "./reviewer-picker.ts";
+import type { ReviewerOverrides } from "./reviewer-overrides.ts";
 import type { PromptReview } from "./review.ts";
 import { formatSinkResults } from "./sinks/dispatch.ts";
 import type { SinkResult } from "./sinks/types.ts";
@@ -14,6 +17,8 @@ export interface LinguaStats {
 
 export interface LinguaCommandDeps {
   getConfig(ctx: ExtensionCommandContext): LinguaConfig;
+  getReviewerOverrides(): ReviewerOverrides;
+  setReviewerOverrides(overrides: ReviewerOverrides): void;
   isEnabled(): boolean;
   setEnabled(enabled: boolean): void;
   getLastReview(): PromptReview | undefined;
@@ -30,18 +35,26 @@ export const LINGUA_COMMANDS = [
   { name: "lingua:on", description: "Resume reviewing prompts" },
   { name: "lingua:status", description: "Show review counts, sinks, and the Reviewer Model in use" },
   { name: "lingua:configure", description: "Show the settings block to paste into .pi/settings.json" },
+  { name: "lingua:model", description: "Choose the Reviewer Model (Pi model selector)" },
+  { name: "lingua:effort", description: "Choose reviewer thinking effort (Pi thinking selector)" },
 ] as const;
 
 export function formatConfigJson(config: LinguaConfig): string {
   return JSON.stringify({ "pi-lingua": config }, null, 2);
 }
 
-export function formatStatus(config: LinguaConfig, stats: LinguaStats, enabled: boolean): string {
+export function formatStatus(
+  config: LinguaConfig,
+  stats: LinguaStats,
+  enabled: boolean,
+  reviewerEffort?: string,
+): string {
   const lines: string[] = [];
   lines.push(`pi-lingua: ${enabled ? "on" : "off"}`);
   lines.push(
     `reviewer: ${stats.reviewerLabel ?? "(unresolved)"}${stats.reviewerLabel ? "" : " — check settings.reviewer"}`,
   );
+  lines.push(`reviewer effort: ${reviewerEffort ?? "off"}`);
   lines.push(
     `languages: ${config.targetLanguage} (target) / ${config.nativeLanguage} (native) · explain in ${config.explainIn}`,
   );
@@ -130,8 +143,15 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
   pi.registerCommand("lingua:status", {
     description: LINGUA_COMMANDS[4].description,
     handler: async (_args, ctx) => {
+      const config = deps.getConfig(ctx);
+      const target = resolveReviewerTarget(ctx, config, deps.getReviewerOverrides());
       ctx.ui.notify(
-        formatStatus(deps.getConfig(ctx), deps.getStats(), deps.isEnabled()),
+        formatStatus(
+          config,
+          deps.getStats(),
+          deps.isEnabled(),
+          formatReviewerEffort(target?.thinkingLevel),
+        ),
         "info",
       );
     },
@@ -147,6 +167,42 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
           "",
           formatConfigJson(deps.getConfig(ctx)),
         ].join("\n"),
+        "info",
+      );
+    },
+  });
+
+  pi.registerCommand("lingua:model", {
+    description: LINGUA_COMMANDS[6].description,
+    handler: async (_args, ctx) => {
+      const config = deps.getConfig(ctx);
+      const currentOverrides = deps.getReviewerOverrides();
+      const target = resolveReviewerTarget(ctx, config, currentOverrides);
+      const next = await pickReviewerModel(ctx, currentOverrides, target);
+      if (!next) return;
+      deps.setReviewerOverrides(next);
+      const resolved = resolveReviewerTarget(ctx, config, next);
+      ctx.ui.notify(
+        resolved
+          ? `Reviewer model: ${resolved.label} (${resolved.source})`
+          : "Reviewer model cleared, but nothing is available for this session.",
+        resolved ? "info" : "warning",
+      );
+    },
+  });
+
+  pi.registerCommand("lingua:effort", {
+    description: LINGUA_COMMANDS[7].description,
+    handler: async (_args, ctx) => {
+      const config = deps.getConfig(ctx);
+      const currentOverrides = deps.getReviewerOverrides();
+      const target = resolveReviewerTarget(ctx, config, currentOverrides);
+      const next = await pickReviewerEffort(ctx, currentOverrides, target);
+      if (!next) return;
+      deps.setReviewerOverrides(next);
+      const resolved = resolveReviewerTarget(ctx, config, next);
+      ctx.ui.notify(
+        `Reviewer effort: ${formatReviewerEffort(resolved?.thinkingLevel)} (task-run thinking unchanged)`,
         "info",
       );
     },

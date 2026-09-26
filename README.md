@@ -106,6 +106,8 @@ the current session.
 | `/lingua:on` | Resume reviewing |
 | `/lingua:status` | Review counts, sink state, and the Reviewer Model in use |
 | `/lingua:configure` | Print the settings block to paste into `.pi/settings.json` |
+| `/lingua:model` | Pick the Reviewer Model with Pi's model selector (session override) |
+| `/lingua:effort` | Pick reviewer thinking effort with Pi's thinking selector (does not change task-run thinking) |
 
 `/lingua:last` writes a transcript entry, not a message. It is rendered for you and is **not** sent to
 the model, so asking for a review never costs context.
