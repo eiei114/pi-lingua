@@ -62,9 +62,15 @@ function createCtx(cwd, { complete } = {}) {
     modelRegistry: {
       find: (provider, id) => (provider === "fake" && id === "fake-model" ? model : undefined),
       getAvailable: () => [model],
+      hasConfiguredAuth: () => true,
       complete:
         complete ??
         (async () => ({ content: [{ type: "text", text: REVIEWER_JSON }], stopReason: "stop" })),
+      streamSimple: () => ({
+        result:
+          complete ??
+          (async () => ({ content: [{ type: "text", text: REVIEWER_JSON }], stopReason: "stop" })),
+      }),
     },
     ui: {
       setWidget(key, content) {
@@ -149,7 +155,7 @@ function readOnlyLogContent(logDir) {
   return files.map((name) => readFileSync(join(logDir, name), "utf8")).join("");
 }
 
-test("the extension registers the input hook, the entry renderer, and six namespaced commands", () => {
+test("the extension registers the input hook, the entry renderer, and eight namespaced commands", () => {
   const pi = createPi();
   extension(pi);
 
@@ -167,6 +173,8 @@ test("the extension registers the input hook, the entry renderer, and six namesp
       "lingua:on",
       "lingua:status",
       "lingua:configure",
+      "lingua:model",
+      "lingua:effort",
     ],
   );
   for (const command of pi.state.commands) {

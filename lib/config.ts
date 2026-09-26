@@ -7,6 +7,8 @@ export type ExplainLanguage = "native" | "target";
 export interface ReviewerRoute {
   provider?: string;
   model?: string;
+  /** Default reviewer effort when not overridden in-session (`/lingua:effort`). */
+  thinkingLevel?: string;
 }
 
 export interface ReviewLogSinkConfig {
@@ -141,6 +143,7 @@ export function applyOverrides(base: LinguaConfig, raw: unknown): LinguaConfig {
     reviewer: {
       provider: optionalString(reviewer.provider) ?? base.reviewer.provider,
       model: optionalString(reviewer.model) ?? base.reviewer.model,
+      thinkingLevel: optionalString(reviewer.thinkingLevel) ?? base.reviewer.thinkingLevel,
     },
     sinks: {
       reviewLog: {

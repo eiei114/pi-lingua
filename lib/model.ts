@@ -1,35 +1,78 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type {
+  Api,
+  AssistantMessageEventStream,
+  Context,
+  Model,
+  ModelThinkingLevel,
+  ModelsSimpleStreamOptions,
+  ThinkingLevel,
+} from "@earendil-works/pi-ai";
+import { clampThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { LinguaConfig } from "./config.ts";
+import type { ReviewerOverrides } from "./reviewer-overrides.ts";
 import { extractAssistantText, type ReviewerPrompt } from "./review.ts";
 
 export interface ReviewerTarget {
   model: Model<Api>;
   label: string;
   /** Where the model came from, so `/lingua:status` can explain the current behaviour. */
-  source: "settings" | "session";
+  source: "settings" | "session" | "override";
+  thinkingLevel?: ModelThinkingLevel;
+}
+
+function resolveThinkingLevel(
+  config: LinguaConfig,
+  overrides: ReviewerOverrides | undefined,
+): ModelThinkingLevel | undefined {
+  if (overrides?.thinkingLevel !== undefined) return overrides.thinkingLevel;
+  const fromSettings = config.reviewer.thinkingLevel?.trim();
+  return fromSettings ? (fromSettings as ModelThinkingLevel) : undefined;
 }
 
 /**
- * Resolves the Reviewer Model. A configured provider/model wins; a bare model id is matched
- * against the available catalogue; otherwise the session model is used so the extension works
- * before any configuration exists.
+ * Resolves the Reviewer Model. Session overrides win, then configured provider/model, then the
+ * session model so the extension works before any configuration exists.
  */
 export function resolveReviewerTarget(
   ctx: ExtensionContext,
   config: LinguaConfig,
+  overrides?: ReviewerOverrides,
 ): ReviewerTarget | undefined {
-  const { provider, model } = config.reviewer;
+  const thinkingLevel = resolveThinkingLevel(config, overrides);
 
-  if (provider && model) {
-    const found = ctx.modelRegistry.find(provider, model);
+  if (overrides?.useSessionModel && ctx.model) {
+    return {
+      model: ctx.model,
+      label: `${ctx.model.provider}/${ctx.model.id}`,
+      source: "override",
+      thinkingLevel,
+    };
+  }
+
+  const provider = overrides?.provider ?? config.reviewer.provider;
+  const modelId = overrides?.model ?? config.reviewer.model;
+  const fromOverride = Boolean(overrides?.provider && overrides?.model);
+
+  if (provider && modelId) {
+    const found = ctx.modelRegistry.find(provider, modelId);
     if (found) {
-      return { model: found, label: `${found.provider}/${found.id}`, source: "settings" };
+      return {
+        model: found,
+        label: `${found.provider}/${found.id}`,
+        source: fromOverride ? "override" : "settings",
+        thinkingLevel,
+      };
     }
-  } else if (model) {
-    const found = ctx.modelRegistry.getAvailable().find((candidate) => candidate.id === model);
+  } else if (modelId) {
+    const found = ctx.modelRegistry.getAvailable().find((candidate) => candidate.id === modelId);
     if (found) {
-      return { model: found, label: `${found.provider}/${found.id}`, source: "settings" };
+      return {
+        model: found,
+        label: `${found.provider}/${found.id}`,
+        source: fromOverride ? "override" : "settings",
+        thinkingLevel,
+      };
     }
   }
 
@@ -38,6 +81,7 @@ export function resolveReviewerTarget(
       model: ctx.model,
       label: `${ctx.model.provider}/${ctx.model.id}`,
       source: "session",
+      thinkingLevel,
     };
   }
 
@@ -46,6 +90,24 @@ export function resolveReviewerTarget(
 
 // Full rendering plus chunked text, IPA, and optional kana need more than a short review budget.
 export const REVIEWER_MAX_TOKENS = 8192;
+
+type StreamableModelRegistry = ExtensionContext["modelRegistry"] & {
+  streamSimple(
+    model: Model<Api>,
+    context: Context,
+    options?: ModelsSimpleStreamOptions,
+  ): AssistantMessageEventStream;
+};
+
+function reasoningForCompletion(
+  model: Model<Api>,
+  level: ModelThinkingLevel | undefined,
+): ThinkingLevel | undefined {
+  if (!level || level === "off") return undefined;
+  const clamped = clampThinkingLevel(model, level);
+  if (clamped === "off") return undefined;
+  return clamped;
+}
 
 /**
  * The one place this package touches a model. It stays deliberately small: a single in-process
@@ -57,14 +119,21 @@ export async function requestReviewerCompletion(
   target: ReviewerTarget,
   prompt: ReviewerPrompt,
 ): Promise<string> {
-  const message = await ctx.modelRegistry.complete(
-    target.model,
-    {
-      systemPrompt: prompt.systemPrompt,
-      messages: [{ role: "user", content: prompt.userPrompt, timestamp: Date.now() }],
-    },
-    { maxTokens: REVIEWER_MAX_TOKENS },
-  );
+  const context = {
+    systemPrompt: prompt.systemPrompt,
+    messages: [{ role: "user" as const, content: prompt.userPrompt, timestamp: Date.now() }],
+  };
+
+  const reasoning = reasoningForCompletion(target.model, target.thinkingLevel);
+  const registry = ctx.modelRegistry as StreamableModelRegistry;
+  const message = reasoning
+    ? await registry
+        .streamSimple(target.model, context, {
+          maxTokens: REVIEWER_MAX_TOKENS,
+          reasoning,
+        })
+        .result()
+    : await registry.complete(target.model, context, { maxTokens: REVIEWER_MAX_TOKENS });
 
   const text = extractAssistantText(message);
   if (!text) {
