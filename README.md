@@ -55,6 +55,9 @@ Two things it never does:
 - **Sinks.** The review log is plain markdown on disk, so pointing it at an Obsidian folder makes it
   a vault note. Vocabulary reaches Anki on demand, never automatically.
 
+- **The toggle sticks.** `/lingua:off` is written to a Pi settings file, so the next session — and
+  any other project — starts off too. Nothing has to be remembered from one session to the next.
+
 ## Install
 
 ```bash
@@ -102,12 +105,16 @@ the current session.
 |---|---|
 | `/lingua:last` | Print the full text of the most recent Prompt Review into the transcript |
 | `/lingua:card` | Send the most recent vocabulary suggestions to Anki |
-| `/lingua:off` | Stop reviewing and clear the widget |
-| `/lingua:on` | Resume reviewing |
-| `/lingua:status` | Review counts, sink state, and the Reviewer Model in use |
+| `/lingua:off` | Stop reviewing, clear the widget, and save that for new sessions |
+| `/lingua:on` | Resume reviewing and save that for new sessions |
+| `/lingua:status` | Review counts, sinks, the Reviewer Model in use, and the settings file in use |
 | `/lingua:configure` | Print the settings block to paste into `.pi/settings.json` |
-| `/lingua:model` | Pick the Reviewer Model with Pi's model selector (session override) |
+| `/lingua:model` | Pick the Reviewer Model with Pi's model selector |
 | `/lingua:effort` | Pick reviewer thinking effort with Pi's thinking selector (does not change task-run thinking) |
+
+`/lingua:off`, `/lingua:on`, `/lingua:model`, and `/lingua:effort` save what you chose, so the next
+session starts from it. [Where those writes land](#where-a-commands-change-is-saved) is explained
+below.
 
 `/lingua:last` writes a transcript entry, not a message. It is rendered for you and is **not** sent to
 the model, so asking for a review never costs context.
@@ -119,6 +126,7 @@ Project settings (`.pi/settings.json`) override agent settings, which override t
 ```json
 {
   "pi-lingua": {
+    "enabled": true,
     "targetLanguage": "en",
     "nativeLanguage": "ja",
     "explainIn": "native",
@@ -142,6 +150,7 @@ Project settings (`.pi/settings.json`) override agent settings, which override t
 
 | Key | Meaning |
 |---|---|
+| `enabled` | `false` stops Prompt Review. `/lingua:off` and `/lingua:on` write this key. |
 | `targetLanguage` | The language you are learning. Accepts a tag (`en`) or a name (`English`). |
 | `nativeLanguage` | The language you think in. Source of translations. |
 | `explainIn` | `native` or `target` — the language of the one-line reason. |
@@ -151,6 +160,30 @@ Project settings (`.pi/settings.json`) override agent settings, which override t
 | `reviewer` | The Reviewer Model. Omit to use the session model. |
 | `sinks.reviewLog.dir` | Where the markdown review log goes. Point it at an Obsidian folder to get vault notes. |
 | `sinks.anki.enabled` | Off by default. Anki only ever receives cards you ask for. |
+
+### Where a command's change is saved
+
+`/lingua:off`, `/lingua:on`, `/lingua:model`, and `/lingua:effort` write to a Pi settings file so the
+next session starts from the same state. Two rules decide which file:
+
+- A key that a settings file already sets is edited **in that file**, because a write anywhere else
+  would be shadowed by it.
+- Keys no file sets go to the **agent settings file** (`~/.pi/agent/settings.json`), which every
+  project sees.
+
+So `/lingua:off` turns reviews off everywhere by default, while a project that declares its own
+`pi-lingua` settings in `.pi/settings.json` keeps its own answer. In an untrusted project Pi reads
+neither the project's settings nor writes them, so a command that would have to write there says so
+and saves to the agent settings file instead. Every other key in a written file is preserved.
+
+Which key each command writes:
+
+| Command | Key | Cleared when you pick |
+|---|---|---|
+| `/lingua:off` | `enabled: false` | — |
+| `/lingua:on` | `enabled: true` | — |
+| `/lingua:model` | `reviewer.provider`, `reviewer.model` | "Session model", which removes both |
+| `/lingua:effort` | `reviewer.thinkingLevel` | `off`, which removes the key |
 
 ### Making the review log an Obsidian note
 

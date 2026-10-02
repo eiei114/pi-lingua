@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { readSettingsFile } from "./settings.ts";
 
 export type ExplainLanguage = "native" | "target";
 
@@ -30,6 +30,8 @@ export interface LinguaSinksConfig {
 }
 
 export interface LinguaConfig {
+  /** When false, the `input` hook stops reviewing. Persisted by `/lingua:off` and `/lingua:on`. */
+  enabled: boolean;
   targetLanguage: string;
   nativeLanguage: string;
   explainIn: ExplainLanguage;
@@ -54,6 +56,7 @@ export function defaultAnkiTsvPath(): string {
 
 export function createDefaultConfig(): LinguaConfig {
   return {
+    enabled: true,
     targetLanguage: "en",
     nativeLanguage: "ja",
     explainIn: "native",
@@ -76,16 +79,6 @@ export function createDefaultConfig(): LinguaConfig {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function readSettingsFile(filePath: string): Record<string, unknown> | undefined {
-  if (!existsSync(filePath)) return undefined;
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(filePath, "utf8"));
-    return isRecord(parsed) ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function stringOr(value: unknown, fallback: string): string {
@@ -131,6 +124,7 @@ export function applyOverrides(base: LinguaConfig, raw: unknown): LinguaConfig {
   const reviewer = isRecord(raw.reviewer) ? raw.reviewer : {};
 
   return {
+    enabled: booleanOr(raw.enabled, base.enabled),
     targetLanguage: stringOr(raw.targetLanguage, base.targetLanguage),
     nativeLanguage: stringOr(raw.nativeLanguage, base.nativeLanguage),
     explainIn: explainLanguageOr(raw.explainIn, base.explainIn),
@@ -164,13 +158,20 @@ export function applyOverrides(base: LinguaConfig, raw: unknown): LinguaConfig {
 /**
  * Resolution order: defaults, then agent settings, then project settings. The project wins
  * because it is the most specific thing the user just opened.
+ *
+ * An untrusted project contributes nothing, matching Pi's own settings resolution: a project that
+ * has not been trusted cannot change how the extension behaves.
  */
-export function loadLinguaConfig(cwd: string): LinguaConfig {
+export function loadLinguaConfig(
+  cwd: string,
+  options: { projectTrusted?: boolean } = {},
+): LinguaConfig {
   const withDefaults = createDefaultConfig();
   const agentSettings = readSettingsFile(join(getAgentDir(), "settings.json"));
-  const projectSettings = readSettingsFile(join(cwd, ".pi", "settings.json"));
-
   const afterAgent = applyOverrides(withDefaults, agentSettings?.["pi-lingua"]);
+  if (options.projectTrusted === false) return afterAgent;
+
+  const projectSettings = readSettingsFile(join(cwd, ".pi", "settings.json"));
   return applyOverrides(afterAgent, projectSettings?.["pi-lingua"]);
 }
 
