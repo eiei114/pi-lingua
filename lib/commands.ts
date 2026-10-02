@@ -7,6 +7,7 @@ import type { PromptReview } from "./review.ts";
 import {
   displaySettingsPath,
   hasProjectSettings,
+  linguaKeyOwner,
   type LinguaSettingsChange,
   type SettingsWrite,
 } from "./settings.ts";
@@ -84,6 +85,8 @@ export interface StatusInput {
   stats: LinguaStats;
   enabled: boolean;
   reviewerEffort?: string;
+  /** Where the `enabled` value currently comes from, e.g. `.pi/settings.json`. */
+  enabledSource?: string;
   /** The file new keys are written to, e.g. `~/.pi/agent/settings.json`. */
   settingsFile?: string;
   /** True when the project has a settings file that Pi is not reading because it is untrusted. */
@@ -93,7 +96,9 @@ export interface StatusInput {
 export function formatStatus(input: StatusInput): string {
   const { config, stats, enabled } = input;
   const lines: string[] = [];
-  lines.push(`pi-lingua: ${enabled ? "on" : "off"}`);
+  lines.push(
+    `pi-lingua: ${enabled ? "on" : "off"}${input.enabledSource ? ` (set in ${input.enabledSource})` : ""}`,
+  );
   lines.push(
     `reviewer: ${stats.reviewerLabel ?? "(unresolved)"}${stats.reviewerLabel ? "" : " — check settings.reviewer"}`,
   );
@@ -209,12 +214,15 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
     handler: async (_args, ctx) => {
       const config = deps.getConfig(ctx);
       const target = resolveReviewerTarget(ctx, config, deps.getReviewerOverrides());
+      const owner = linguaKeyOwner(ctx.cwd, "enabled");
+      const ownerCounts = owner === "global" || ctx.isProjectTrusted();
       ctx.ui.notify(
         formatStatus({
           config,
           stats: deps.getStats(),
           enabled: deps.isEnabled(ctx),
           reviewerEffort: formatReviewerEffort(target?.thinkingLevel),
+          enabledSource: owner && ownerCounts ? displaySettingsPath(owner, ctx.cwd) : undefined,
           settingsFile: displaySettingsPath("global", ctx.cwd),
           projectSettingsIgnored: !ctx.isProjectTrusted() && hasProjectSettings(ctx.cwd),
         }),

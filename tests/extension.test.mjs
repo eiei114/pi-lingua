@@ -537,3 +537,22 @@ test("a project settings file keeps the toggle it already declares", async () =>
   assert.equal(projectSettings["pi-lingua"].enabled, false);
   assert.equal(existsSync(agentSettings), false, "a key the project owns is not duplicated globally");
 });
+
+test("lingua:status says which settings file decided the toggle", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "pi-lingua-status-owner-"));
+  mkdirSync(join(cwd, ".pi"), { recursive: true });
+  writeFileSync(
+    join(cwd, ".pi", "settings.json"),
+    JSON.stringify({ "pi-lingua": { enabled: false } }),
+    "utf8",
+  );
+
+  const pi = createPi();
+  extension(pi);
+  const ctx = createCtx(cwd);
+  const status = pi.state.commands.find((command) => command.name === "lingua:status");
+  await status.handler("", ctx);
+
+  const message = ctx.state.notifications.at(-1).message;
+  assert.match(message, /pi-lingua: off \(set in \.pi\/settings\.json\)/);
+});
