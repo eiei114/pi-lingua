@@ -1,4 +1,9 @@
-import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ExtensionContext,
+  Theme,
+} from "@earendil-works/pi-coding-agent";
 import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { registerLinguaCommands, type LinguaStats } from "../lib/commands.ts";
 import { loadLinguaConfig } from "../lib/config.ts";
@@ -6,6 +11,7 @@ import {
   createEmptyReviewerOverrides,
   type ReviewerOverrides,
 } from "../lib/reviewer-overrides.ts";
+import { writeLinguaSettings, type LinguaSettingsChange } from "../lib/settings.ts";
 import { evaluateEligibility } from "../lib/eligibility.ts";
 import { requestReviewerCompletion, resolveReviewerTarget } from "../lib/model.ts";
 import {
@@ -48,7 +54,11 @@ function createReviewWidget(review: PromptReview, theme: Theme): Container {
 }
 
 export default function (pi: ExtensionAPI) {
-  let enabled = true;
+  /**
+   * How the running session behaves. It starts from settings so a `/lingua:off` from an earlier
+   * session still holds, and a command can change it immediately without waiting for a re-read.
+   */
+  let enabledOverride: boolean | undefined;
   let reviewerOverrides: ReviewerOverrides = createEmptyReviewerOverrides();
   let lastReview: PromptReview | undefined;
   let stats: LinguaStats = {
@@ -58,6 +68,25 @@ export default function (pi: ExtensionAPI) {
     reviewerLabel: undefined,
     lastSinkResults: [],
   };
+
+  function configFor(ctx: ExtensionContext) {
+    // Untrusted project settings are invisible to Pi, so they are invisible here too.
+    return loadLinguaConfig(ctx.cwd, { projectTrusted: ctx.isProjectTrusted() });
+  }
+
+  function isEnabled(ctx: ExtensionContext): boolean {
+    return enabledOverride ?? configFor(ctx).enabled;
+  }
+
+  function persistSettings(
+    changes: readonly LinguaSettingsChange[],
+    ctx: ExtensionCommandContext,
+  ) {
+    return writeLinguaSettings(changes, {
+      cwd: ctx.cwd,
+      projectWritesAllowed: ctx.isProjectTrusted(),
+    });
+  }
 
   pi.registerEntryRenderer<PromptReview>(REVIEW_ENTRY_TYPE, (entry, { expanded }, theme) => {
     const review = entry.data;
@@ -110,7 +139,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   async function reviewPrompt(text: string, ctx: ExtensionContext): Promise<void> {
-    const config = loadLinguaConfig(ctx.cwd);
+    const config = configFor(ctx);
     const eligibility = evaluateEligibility(text, config);
 
     if (!eligibility.eligible) {
@@ -187,7 +216,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("input", async (event, ctx) => {
     // Every early return here is `continue`: this handler observes the prompt and must never
     // rewrite it or hold up the Task Run (ADR-0001).
-    if (!enabled) return { action: "continue" };
+    if (!isEnabled(ctx)) return { action: "continue" };
     if (event.source === "extension") return { action: "continue" };
 
     // Deliberately not awaited. The review is a side lane; the prompt goes to the agent now.
@@ -199,15 +228,16 @@ export default function (pi: ExtensionAPI) {
   });
 
   registerLinguaCommands(pi, {
-    getConfig: (ctx) => loadLinguaConfig(ctx.cwd),
+    getConfig: (ctx) => configFor(ctx),
     getReviewerOverrides: () => reviewerOverrides,
     setReviewerOverrides: (overrides) => {
       reviewerOverrides = overrides;
     },
-    isEnabled: () => enabled,
+    isEnabled: (ctx) => isEnabled(ctx),
     setEnabled: (value) => {
-      enabled = value;
+      enabledOverride = value;
     },
+    persistSettings,
     getLastReview: () => lastReview,
     clearWidget: (ctx) => {
       if (ctx.hasUI) ctx.ui.setWidget(REVIEW_WIDGET_KEY, undefined);
@@ -215,7 +245,7 @@ export default function (pi: ExtensionAPI) {
     appendDetail: (review) => {
       pi.appendEntry(REVIEW_ENTRY_TYPE, review);
     },
-    runManualSinks: (review, ctx) => runSinks(review, loadLinguaConfig(ctx.cwd), "manual"),
+    runManualSinks: (review, ctx) => runSinks(review, configFor(ctx), "manual"),
     getStats: () => stats,
   });
 }

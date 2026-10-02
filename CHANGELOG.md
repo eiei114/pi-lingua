@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning.
 
+## [0.6.0] - 2026-10-02
+
+### Added
+
+- `/lingua:off` and `/lingua:on` are saved to Pi's settings as `pi-lingua.enabled`, so the next
+  session and any other project start from the same state. `/lingua:status` reports the settings file
+  in use.
+- `/lingua:model` and `/lingua:effort` save `reviewer.provider` / `reviewer.model` /
+  `reviewer.thinkingLevel` instead of only lasting for the session. Choosing "Session model" or `off`
+  removes those keys, which is what makes the reviewer fall back.
+
+### Changed
+
+- A value is written to the settings file that already sets that key, because a write to any other
+  file would be shadowed by it. Keys no file sets go to the agent settings file, so a toggle reaches
+  every project.
+- An untrusted project's `.pi/settings.json` no longer changes pi-lingua behaviour, matching how Pi
+  resolves settings. A command that would have to write there reports it and saves globally instead.
+
 ## [0.5.0] - 2026-09-26
 
 ### Added

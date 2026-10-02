@@ -4,6 +4,12 @@ import { resolveReviewerTarget } from "./model.ts";
 import { formatReviewerEffort, pickReviewerEffort, pickReviewerModel } from "./reviewer-picker.ts";
 import type { ReviewerOverrides } from "./reviewer-overrides.ts";
 import type { PromptReview } from "./review.ts";
+import {
+  displaySettingsPath,
+  hasProjectSettings,
+  type LinguaSettingsChange,
+  type SettingsWrite,
+} from "./settings.ts";
 import { formatSinkResults } from "./sinks/dispatch.ts";
 import type { SinkResult } from "./sinks/types.ts";
 
@@ -19,8 +25,10 @@ export interface LinguaCommandDeps {
   getConfig(ctx: ExtensionCommandContext): LinguaConfig;
   getReviewerOverrides(): ReviewerOverrides;
   setReviewerOverrides(overrides: ReviewerOverrides): void;
-  isEnabled(): boolean;
+  isEnabled(ctx: ExtensionCommandContext): boolean;
   setEnabled(enabled: boolean): void;
+  /** Writes values into Pi's settings files so the next session starts with them. */
+  persistSettings(changes: readonly LinguaSettingsChange[], ctx: ExtensionCommandContext): SettingsWrite[];
   getLastReview(): PromptReview | undefined;
   clearWidget(ctx: ExtensionCommandContext): void;
   appendDetail(review: PromptReview): void;
@@ -31,30 +39,65 @@ export interface LinguaCommandDeps {
 export const LINGUA_COMMANDS = [
   { name: "lingua:last", description: "Show the full text of the most recent Prompt Review" },
   { name: "lingua:card", description: "Send the most recent Vocabulary Suggestions to Anki" },
-  { name: "lingua:off", description: "Stop reviewing prompts and clear the review widget" },
-  { name: "lingua:on", description: "Resume reviewing prompts" },
+  { name: "lingua:off", description: "Stop reviewing prompts, clear the widget, and save it for new sessions" },
+  { name: "lingua:on", description: "Resume reviewing prompts and save it for new sessions" },
   { name: "lingua:status", description: "Show review counts, sinks, and the Reviewer Model in use" },
   { name: "lingua:configure", description: "Show the settings block to paste into .pi/settings.json" },
   { name: "lingua:model", description: "Choose the Reviewer Model (Pi model selector)" },
   { name: "lingua:effort", description: "Choose reviewer thinking effort (Pi thinking selector)" },
 ] as const;
 
+export interface SettingsWriteSummary {
+  /** One clause describing where the values landed, or why nothing was written. */
+  text: string;
+  warning: boolean;
+}
+
+/**
+ * Turns what the writer did into one clause for a notification. A shadowed write is the only
+ * failure worth a warning: the value was saved, but a file that could not be edited still wins.
+ */
+export function summarizeSettingsWrite(writes: readonly SettingsWrite[], cwd: string): SettingsWriteSummary {
+  if (writes.length === 0) {
+    return { text: "no settings change was needed", warning: false };
+  }
+
+  const saved = writes.map((write) => displaySettingsPath(write.scope, cwd)).join(" and ");
+  const shadowed = writes.filter((write) => write.shadowed);
+  if (shadowed.length === 0) {
+    return { text: `saved to ${saved}`, warning: false };
+  }
+
+  const shadowing = displaySettingsPath("project", cwd);
+  return {
+    text: `saved to ${saved}, but ${shadowing} still sets the same keys and this project is not trusted`,
+    warning: true,
+  };
+}
+
 export function formatConfigJson(config: LinguaConfig): string {
   return JSON.stringify({ "pi-lingua": config }, null, 2);
 }
 
-export function formatStatus(
-  config: LinguaConfig,
-  stats: LinguaStats,
-  enabled: boolean,
-  reviewerEffort?: string,
-): string {
+export interface StatusInput {
+  config: LinguaConfig;
+  stats: LinguaStats;
+  enabled: boolean;
+  reviewerEffort?: string;
+  /** The file new keys are written to, e.g. `~/.pi/agent/settings.json`. */
+  settingsFile?: string;
+  /** True when the project has a settings file that Pi is not reading because it is untrusted. */
+  projectSettingsIgnored?: boolean;
+}
+
+export function formatStatus(input: StatusInput): string {
+  const { config, stats, enabled } = input;
   const lines: string[] = [];
   lines.push(`pi-lingua: ${enabled ? "on" : "off"}`);
   lines.push(
     `reviewer: ${stats.reviewerLabel ?? "(unresolved)"}${stats.reviewerLabel ? "" : " — check settings.reviewer"}`,
   );
-  lines.push(`reviewer effort: ${reviewerEffort ?? "off"}`);
+  lines.push(`reviewer effort: ${input.reviewerEffort ?? "off"}`);
   lines.push(
     `languages: ${config.targetLanguage} (target) / ${config.nativeLanguage} (native) · explain in ${config.explainIn}`,
   );
@@ -62,6 +105,9 @@ export function formatStatus(
 
   const skip = stats.lastSkipReason ? ` (last skip: ${stats.lastSkipReason})` : "";
   lines.push(`reviewed ${stats.reviewed}, skipped ${stats.skipped}${skip}`);
+
+  const ignored = input.projectSettingsIgnored ? " · this project's settings are not trusted" : "";
+  lines.push(`settings file: ${input.settingsFile ?? "(global)"}${ignored}`);
 
   const log = config.sinks.reviewLog;
   lines.push(
@@ -88,6 +134,15 @@ export function formatStatus(
  * remembered as a positional argument at the prompt.
  */
 export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps): void {
+  function settingsNote(changes: readonly LinguaSettingsChange[], ctx: ExtensionCommandContext): SettingsWriteSummary {
+    try {
+      return summarizeSettingsWrite(deps.persistSettings(changes, ctx), ctx.cwd);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return { text: `the settings file could not be written (${detail})`, warning: true };
+    }
+  }
+
   pi.registerCommand("lingua:last", {
     description: LINGUA_COMMANDS[0].description,
     handler: async (_args, ctx) => {
@@ -128,7 +183,11 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
     handler: async (_args, ctx) => {
       deps.setEnabled(false);
       deps.clearWidget(ctx);
-      ctx.ui.notify("pi-lingua review is off. Prompt Review is not running.", "info");
+      const saved = settingsNote([{ keyPath: "enabled", value: false }], ctx);
+      ctx.ui.notify(
+        `pi-lingua review is off, in this session and in new sessions (${saved.text}).`,
+        saved.warning ? "warning" : "info",
+      );
     },
   });
 
@@ -136,7 +195,12 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
     description: LINGUA_COMMANDS[3].description,
     handler: async (_args, ctx) => {
       deps.setEnabled(true);
-      ctx.ui.notify("pi-lingua review is on.", "info");
+      // Every file that says `false` is cleared, so no lower-precedence file can keep it off.
+      const saved = settingsNote([{ keyPath: "enabled", value: true, targets: "all" }], ctx);
+      ctx.ui.notify(
+        `pi-lingua review is on, in this session and in new sessions (${saved.text}).`,
+        saved.warning ? "warning" : "info",
+      );
     },
   });
 
@@ -146,12 +210,14 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
       const config = deps.getConfig(ctx);
       const target = resolveReviewerTarget(ctx, config, deps.getReviewerOverrides());
       ctx.ui.notify(
-        formatStatus(
+        formatStatus({
           config,
-          deps.getStats(),
-          deps.isEnabled(),
-          formatReviewerEffort(target?.thinkingLevel),
-        ),
+          stats: deps.getStats(),
+          enabled: deps.isEnabled(ctx),
+          reviewerEffort: formatReviewerEffort(target?.thinkingLevel),
+          settingsFile: displaySettingsPath("global", ctx.cwd),
+          projectSettingsIgnored: !ctx.isProjectTrusted() && hasProjectSettings(ctx.cwd),
+        }),
         "info",
       );
     },
@@ -181,12 +247,29 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
       const next = await pickReviewerModel(ctx, currentOverrides, target);
       if (!next) return;
       deps.setReviewerOverrides(next);
+
+      // A session-model choice is represented by having no reviewer route in settings at all.
+      const saved = next.useSessionModel
+        ? settingsNote(
+            [
+              { keyPath: "reviewer.provider", value: undefined, targets: "all" },
+              { keyPath: "reviewer.model", value: undefined, targets: "all" },
+            ],
+            ctx,
+          )
+        : settingsNote(
+            [
+              { keyPath: "reviewer.provider", value: next.provider },
+              { keyPath: "reviewer.model", value: next.model },
+            ],
+            ctx,
+          );
+
       const resolved = resolveReviewerTarget(ctx, config, next);
+      const label = resolved ? `${resolved.label} (${resolved.source})` : "nothing available for this session";
       ctx.ui.notify(
-        resolved
-          ? `Reviewer model: ${resolved.label} (${resolved.source})`
-          : "Reviewer model cleared, but nothing is available for this session.",
-        resolved ? "info" : "warning",
+        `Reviewer model: ${label} — ${saved.text}.`,
+        resolved && !saved.warning ? "info" : "warning",
       );
     },
   });
@@ -200,10 +283,23 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
       const next = await pickReviewerEffort(ctx, currentOverrides, target);
       if (!next) return;
       deps.setReviewerOverrides(next);
+
+      // `off` is the absence of a thinking level, so it removes the key instead of storing "off".
+      const saved = settingsNote(
+        [
+          {
+            keyPath: "reviewer.thinkingLevel",
+            value: next.thinkingLevel === "off" ? undefined : next.thinkingLevel,
+            targets: next.thinkingLevel === "off" ? "all" : "owner",
+          },
+        ],
+        ctx,
+      );
+
       const resolved = resolveReviewerTarget(ctx, config, next);
       ctx.ui.notify(
-        `Reviewer effort: ${formatReviewerEffort(resolved?.thinkingLevel)} (task-run thinking unchanged)`,
-        "info",
+        `Reviewer effort: ${formatReviewerEffort(resolved?.thinkingLevel)} (task-run thinking unchanged) — ${saved.text}.`,
+        saved.warning ? "warning" : "info",
       );
     },
   });

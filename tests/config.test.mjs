@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+// Keep the machine's real agent settings out of these assertions.
+process.env.PI_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "pi-lingua-config-agent-"));
+
 const { applyOverrides, createDefaultConfig, expandHome, loadLinguaConfig, defaultReviewLogDir } =
   await import("../lib/config.ts");
 
@@ -18,6 +21,7 @@ test("the default review log lives under Pi's own agent directory", () => {
 
 test("defaults work with no configuration at all", () => {
   const config = createDefaultConfig();
+  assert.equal(config.enabled, true);
   assert.equal(config.targetLanguage, "en");
   assert.equal(config.nativeLanguage, "ja");
   assert.equal(config.explainIn, "native");
@@ -78,6 +82,21 @@ test("project settings win over the defaults", () => {
   assert.equal(config.targetLanguage, "fr");
   assert.equal(config.sinks.reviewLog.dir, "notes/lingua");
   assert.equal(config.nativeLanguage, "ja");
+});
+
+test("applyOverrides reads the session toggle", () => {
+  assert.equal(applyOverrides(createDefaultConfig(), { enabled: false }).enabled, false);
+  assert.equal(applyOverrides(createDefaultConfig(), { enabled: "sometimes" }).enabled, true);
+});
+
+test("an untrusted project contributes no settings", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "pi-lingua-untrusted-"));
+  writeSettings(cwd, { "pi-lingua": { enabled: false, targetLanguage: "fr" } });
+
+  assert.equal(loadLinguaConfig(cwd).targetLanguage, "fr", "a trusted project applies its settings");
+  const untrusted = loadLinguaConfig(cwd, { projectTrusted: false });
+  assert.equal(untrusted.enabled, true);
+  assert.equal(untrusted.targetLanguage, "en");
 });
 
 test("a malformed settings file falls back to defaults", () => {

@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
+
+// Reviews write settings files; keep the machine's real agent settings untouched.
+process.env.PI_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "pi-lingua-ext-agent-"));
 
 const { default: extension, REVIEW_ENTRY_TYPE, REVIEW_WIDGET_KEY } = await import(
   "../extensions/index.ts"
@@ -58,7 +61,9 @@ function createCtx(cwd, { complete } = {}) {
   return {
     cwd,
     hasUI: true,
+    mode: "tui",
     model,
+    isProjectTrusted: () => true,
     modelRegistry: {
       find: (provider, id) => (provider === "fake" && id === "fake-model" ? model : undefined),
       getAvailable: () => [model],
@@ -402,6 +407,7 @@ test("lingua:status reports the reviewer model and sink state", async () => {
   assert.match(message, /reviewer: fake\/fake-model/);
   assert.match(message, /reviewed 1/);
   assert.match(message, /sink markdown-log: enabled/);
+  assert.match(message, /settings file: /);
 });
 
 test("lingua:configure prints a pasteable settings block", async () => {
@@ -455,4 +461,79 @@ test("a failing reviewer call is reported and does not reject the input handler"
 
   assert.ok(await waitFor(() => ctx.state.notifications.length > 0));
   assert.match(ctx.state.notifications.at(-1).message, /provider exploded/);
+});
+
+/**
+ * The point of `/lingua:off`: it has to outlive the session that typed it. Settings resolve project
+ * over global, so a toggle nobody has set belongs in the global file, where every session sees it.
+ */
+test("lingua:off is remembered by the next session and by another project", async () => {
+  const agentSettings = join(process.env.PI_CODING_AGENT_DIR, "settings.json");
+  const pi = createPi();
+  extension(pi);
+
+  const { cwd } = projectWithConfig();
+  const ctx = createCtx(cwd);
+  const off = pi.state.commands.find((command) => command.name === "lingua:off");
+  await off.handler("", ctx);
+
+  const notification = ctx.state.notifications.at(-1);
+  assert.equal(notification.type, "info");
+  assert.match(notification.message, /new sessions/);
+  assert.match(notification.message, /saved to/);
+  assert.equal(JSON.parse(readFileSync(agentSettings, "utf8"))["pi-lingua"].enabled, false);
+
+  // A new session in a project that says nothing about pi-lingua starts from the saved state.
+  const other = mkdtempSync(join(tmpdir(), "pi-lingua-other-"));
+  const pi2 = createPi();
+  extension(pi2);
+  const ctx2 = createCtx(other);
+  await pi2.state.handlers.get("input")(
+    { type: "input", text: "fix the bug of login", source: "interactive" },
+    ctx2,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(ctx2.state.widgets.size, 0, "the saved off state stops the review");
+
+  const status = pi2.state.commands.find((command) => command.name === "lingua:status");
+  await status.handler("", ctx2);
+  assert.match(ctx2.state.notifications.at(-1).message, /pi-lingua: off/);
+
+  // Turning it back on clears every `false`, so the session after that starts reviewing again.
+  const on = pi2.state.commands.find((command) => command.name === "lingua:on");
+  await on.handler("", ctx2);
+  assert.equal(JSON.parse(readFileSync(agentSettings, "utf8"))["pi-lingua"].enabled, true);
+
+  const pi3 = createPi();
+  extension(pi3);
+  const ctx3 = createCtx(other);
+  await pi3.state.handlers.get("input")(
+    { type: "input", text: "fix the bug of login", source: "interactive" },
+    ctx3,
+  );
+  assert.ok(await waitFor(() => ctx3.state.widgets.size > 0), "review resumes in the next session");
+
+  // Leave the shared agent settings the way the rest of this file expects them.
+  rmSync(agentSettings, { force: true });
+});
+
+test("a project settings file keeps the toggle it already declares", async () => {
+  const agentSettings = join(process.env.PI_CODING_AGENT_DIR, "settings.json");
+  const cwd = mkdtempSync(join(tmpdir(), "pi-lingua-project-owner-"));
+  mkdirSync(join(cwd, ".pi"), { recursive: true });
+  writeFileSync(
+    join(cwd, ".pi", "settings.json"),
+    JSON.stringify({ "pi-lingua": { enabled: true } }),
+    "utf8",
+  );
+
+  const pi = createPi();
+  extension(pi);
+  const ctx = createCtx(cwd);
+  const off = pi.state.commands.find((command) => command.name === "lingua:off");
+  await off.handler("", ctx);
+
+  const projectSettings = JSON.parse(readFileSync(join(cwd, ".pi", "settings.json"), "utf8"));
+  assert.equal(projectSettings["pi-lingua"].enabled, false);
+  assert.equal(existsSync(agentSettings), false, "a key the project owns is not duplicated globally");
 });
