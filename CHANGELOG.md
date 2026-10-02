@@ -23,6 +23,12 @@ This project follows semantic versioning.
 - An untrusted project's `.pi/settings.json` no longer changes pi-lingua behaviour, matching how Pi
   resolves settings. A command that would have to write there reports it and saves globally instead.
 
+## [0.5.1] - 2026-09-30
+
+### Changed
+
+- Update `@earendil-works/pi-*` dependencies to `0.99.1`.
+
 ## [0.5.0] - 2026-09-26
 
 ### Added
