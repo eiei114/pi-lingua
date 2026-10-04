@@ -156,11 +156,8 @@ export function applyOverrides(base: LinguaConfig, raw: unknown): LinguaConfig {
 }
 
 /**
- * Resolution order: defaults, then agent settings, then project settings. The project wins
- * because it is the most specific thing the user just opened.
- *
- * An untrusted project contributes nothing, matching Pi's own settings resolution: a project that
- * has not been trusted cannot change how the extension behaves.
+ * All preferences are agent-global. Project blocks are intentionally ignored so that
+ * toggles, reviewer routing, languages, and sinks agree across running sessions.
  */
 export function loadLinguaConfig(
   cwd: string,
@@ -168,11 +165,7 @@ export function loadLinguaConfig(
 ): LinguaConfig {
   const withDefaults = createDefaultConfig();
   const agentSettings = readSettingsFile(join(getAgentDir(), "settings.json"));
-  const afterAgent = applyOverrides(withDefaults, agentSettings?.["pi-lingua"]);
-  if (options.projectTrusted === false) return afterAgent;
-
-  const projectSettings = readSettingsFile(join(cwd, ".pi", "settings.json"));
-  return applyOverrides(afterAgent, projectSettings?.["pi-lingua"]);
+  return applyOverrides(withDefaults, agentSettings?.["pi-lingua"]);
 }
 
 /** Expands a leading `~` so settings can be written the way a shell user expects. */

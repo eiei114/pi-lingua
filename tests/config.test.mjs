@@ -72,15 +72,15 @@ test("sink settings merge field by field", () => {
   assert.equal(config.sinks.anki.endpoint, "http://127.0.0.1:8765");
 });
 
-test("project settings win over the defaults", () => {
+test("project settings are ignored, including languages and sinks", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-lingua-config-"));
   writeSettings(cwd, {
     "pi-lingua": { targetLanguage: "fr", sinks: { reviewLog: { dir: "notes/lingua" } } },
   });
 
   const config = loadLinguaConfig(cwd);
-  assert.equal(config.targetLanguage, "fr");
-  assert.equal(config.sinks.reviewLog.dir, "notes/lingua");
+  assert.equal(config.targetLanguage, "en");
+  assert.equal(config.sinks.reviewLog.dir, defaultReviewLogDir());
   assert.equal(config.nativeLanguage, "ja");
 });
 
@@ -93,7 +93,7 @@ test("an untrusted project contributes no settings", () => {
   const cwd = mkdtempSync(join(tmpdir(), "pi-lingua-untrusted-"));
   writeSettings(cwd, { "pi-lingua": { enabled: false, targetLanguage: "fr" } });
 
-  assert.equal(loadLinguaConfig(cwd).targetLanguage, "fr", "a trusted project applies its settings");
+  assert.equal(loadLinguaConfig(cwd).targetLanguage, "en", "trusted projects also ignore Lingua blocks");
   const untrusted = loadLinguaConfig(cwd, { projectTrusted: false });
   assert.equal(untrusted.enabled, true);
   assert.equal(untrusted.targetLanguage, "en");

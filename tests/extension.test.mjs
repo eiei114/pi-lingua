@@ -114,7 +114,7 @@ function projectWithConfig() {
   const logDir = join(cwd, "reviews");
   mkdirSync(join(cwd, ".pi"), { recursive: true });
   writeFileSync(
-    join(cwd, ".pi", "settings.json"),
+    join(process.env.PI_CODING_AGENT_DIR, "settings.json"),
     JSON.stringify({ "pi-lingua": { sinks: { reviewLog: { dir: logDir } } } }),
     "utf8",
   );
@@ -517,7 +517,7 @@ test("lingua:off is remembered by the next session and by another project", asyn
   rmSync(agentSettings, { force: true });
 });
 
-test("a project settings file keeps the toggle it already declares", async () => {
+test("legacy project settings stay untouched while the shared toggle changes", async () => {
   const agentSettings = join(process.env.PI_CODING_AGENT_DIR, "settings.json");
   const cwd = mkdtempSync(join(tmpdir(), "pi-lingua-project-owner-"));
   mkdirSync(join(cwd, ".pi"), { recursive: true });
@@ -534,8 +534,8 @@ test("a project settings file keeps the toggle it already declares", async () =>
   await off.handler("", ctx);
 
   const projectSettings = JSON.parse(readFileSync(join(cwd, ".pi", "settings.json"), "utf8"));
-  assert.equal(projectSettings["pi-lingua"].enabled, false);
-  assert.equal(existsSync(agentSettings), false, "a key the project owns is not duplicated globally");
+  assert.equal(projectSettings["pi-lingua"].enabled, true);
+  assert.equal(JSON.parse(readFileSync(agentSettings, "utf8"))["pi-lingua"].enabled, false);
 });
 
 test("lingua:status says which settings file decided the toggle", async () => {
@@ -554,5 +554,77 @@ test("lingua:status says which settings file decided the toggle", async () => {
   await status.handler("", ctx);
 
   const message = ctx.state.notifications.at(-1).message;
-  assert.match(message, /pi-lingua: off \(set in \.pi\/settings\.json\)/);
+  assert.match(message, /pi-lingua: off \(set in .*settings\.json\)/);
+  assert.match(message, /project Lingua settings are ignored/);
+});
+
+test("an already-open OFF session follows another session's ON command", async () => {
+  const { cwd } = projectWithConfig();
+  const a = createPi(), b = createPi();
+  extension(a); extension(b);
+  const ctxA = createCtx(cwd), ctxB = createCtx(cwd);
+  await a.state.commands.find(c => c.name === "lingua:off").handler("", ctxA);
+  await b.state.commands.find(c => c.name === "lingua:on").handler("", ctxB);
+  await a.state.handlers.get("input")({ text: "fix the bug of login", source: "interactive" }, ctxA);
+  assert.ok(await waitFor(() => ctxA.state.widgets.size === 1));
+});
+
+test("model and effort changes replace earlier choices in an already-open session", async () => {
+  const { cwd } = projectWithConfig();
+  const a = createPi(), b = createPi(); extension(a); extension(b);
+  const ctxA = createCtx(cwd), ctxB = createCtx(cwd);
+  const x = { ...ctxA.model, id: "x", reasoning: true };
+  const y = { ...x, id: "y" };
+  for (const ctx of [ctxA, ctxB]) {
+    ctx.scopedModels = [];
+    ctx.modelRegistry.find = (_provider, id) => id === "x" ? x : id === "y" ? y : ctx.model;
+    ctx.ui.select = async () => "Choose from model catalog…";
+  }
+  ctxA.ui.custom = async () => x;
+  ctxB.ui.custom = async () => y;
+  await a.state.commands.find(c => c.name === "lingua:model").handler("", ctxA);
+  await b.state.commands.find(c => c.name === "lingua:model").handler("", ctxB);
+  ctxB.ui.custom = async () => "low";
+  await b.state.commands.find(c => c.name === "lingua:effort").handler("", ctxB);
+  let received;
+  ctxA.modelRegistry.streamSimple = (model, _prompt, options) => {
+    received = { model: model.id, effort: options.reasoning };
+    return { result: async () => ({ content: [{ type: "text", text: REVIEWER_JSON }], stopReason: "stop" }) };
+  };
+  await a.state.handlers.get("input")({ text: "fix the bug of login", source: "interactive" }, ctxA);
+  assert.ok(await waitFor(() => ctxA.state.widgets.size === 1));
+  assert.deepEqual(received, { model: "y", effort: "low" });
+});
+
+test("global OFF clears an idle session's widget without another prompt", async () => {
+  const { cwd } = projectWithConfig();
+  const pi = createPi(); extension(pi); const ctx = createCtx(cwd);
+  await pi.state.handlers.get("session_start")({}, ctx);
+  try {
+    await pi.state.handlers.get("input")({ text: "fix the bug of login", source: "interactive" }, ctx);
+    assert.ok(await waitFor(() => ctx.state.widgets.size === 1));
+    const { spawnSync } = await import("node:child_process");
+    const result = spawnSync(process.execPath, ["-e", `const fs=require('node:fs');const p=process.argv[1];const d=JSON.parse(fs.readFileSync(p));d['pi-lingua'].enabled=false;fs.writeFileSync(p,JSON.stringify(d));`, join(process.env.PI_CODING_AGENT_DIR, "settings.json")]);
+    assert.equal(result.status, 0, result.stderr.toString());
+    assert.ok(await waitFor(() => ctx.state.widgets.size === 0), "watcher clears the widget across processes");
+  } finally {
+    await pi.state.handlers.get("session_shutdown")({}, ctx);
+  }
+});
+
+test("OFF aborts pending reviews and late completion cannot restore the widget", async () => {
+  const { cwd } = projectWithConfig();
+  const pi = createPi(); extension(pi);
+  let release, signal;
+  const ctx = createCtx(cwd, { complete: (_model, _prompt, options) => {
+    signal = options.signal;
+    return new Promise(resolve => { release = resolve; });
+  } });
+  await pi.state.handlers.get("input")({ text: "fix the bug of login", source: "interactive" }, ctx);
+  await pi.state.commands.find(c => c.name === "lingua:off").handler("", ctx);
+  assert.equal(signal.aborted, true);
+  release({ content: [{ type: "text", text: REVIEWER_JSON }], stopReason: "stop" });
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(ctx.state.widgets.size, 0);
+  assert.equal(logFileCount(join(cwd, "reviews")), 0);
 });

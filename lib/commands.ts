@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { expandHome, type LinguaConfig } from "./config.ts";
 import { resolveReviewerTarget } from "./model.ts";
 import { formatReviewerEffort, pickReviewerEffort, pickReviewerModel } from "./reviewer-picker.ts";
-import type { ReviewerOverrides } from "./reviewer-overrides.ts";
+import { createEmptyReviewerOverrides } from "./reviewer-overrides.ts";
 import type { PromptReview } from "./review.ts";
 import {
   displaySettingsPath,
@@ -24,10 +24,7 @@ export interface LinguaStats {
 
 export interface LinguaCommandDeps {
   getConfig(ctx: ExtensionCommandContext): LinguaConfig;
-  getReviewerOverrides(): ReviewerOverrides;
-  setReviewerOverrides(overrides: ReviewerOverrides): void;
   isEnabled(ctx: ExtensionCommandContext): boolean;
-  setEnabled(enabled: boolean): void;
   /** Writes values into Pi's settings files so the next session starts with them. */
   persistSettings(changes: readonly LinguaSettingsChange[], ctx: ExtensionCommandContext): SettingsWrite[];
   getLastReview(): PromptReview | undefined;
@@ -89,7 +86,7 @@ export interface StatusInput {
   enabledSource?: string;
   /** The file new keys are written to, e.g. `~/.pi/agent/settings.json`. */
   settingsFile?: string;
-  /** True when the project has a settings file that Pi is not reading because it is untrusted. */
+  /** True when a project settings file exists; its Lingua block is always ignored. */
   projectSettingsIgnored?: boolean;
 }
 
@@ -111,7 +108,7 @@ export function formatStatus(input: StatusInput): string {
   const skip = stats.lastSkipReason ? ` (last skip: ${stats.lastSkipReason})` : "";
   lines.push(`reviewed ${stats.reviewed}, skipped ${stats.skipped}${skip}`);
 
-  const ignored = input.projectSettingsIgnored ? " · this project's settings are not trusted" : "";
+  const ignored = input.projectSettingsIgnored ? " · project Lingua settings are ignored (global only)" : "";
   lines.push(`settings file: ${input.settingsFile ?? "(global)"}${ignored}`);
 
   const log = config.sinks.reviewLog;
@@ -186,7 +183,6 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
   pi.registerCommand("lingua:off", {
     description: LINGUA_COMMANDS[2].description,
     handler: async (_args, ctx) => {
-      deps.setEnabled(false);
       deps.clearWidget(ctx);
       const saved = settingsNote([{ keyPath: "enabled", value: false }], ctx);
       ctx.ui.notify(
@@ -199,8 +195,7 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
   pi.registerCommand("lingua:on", {
     description: LINGUA_COMMANDS[3].description,
     handler: async (_args, ctx) => {
-      deps.setEnabled(true);
-      // Every file that says `false` is cleared, so no lower-precedence file can keep it off.
+      // Write the shared preference; project blocks never override it.
       const saved = settingsNote([{ keyPath: "enabled", value: true, targets: "all" }], ctx);
       ctx.ui.notify(
         `pi-lingua review is on, in this session and in new sessions (${saved.text}).`,
@@ -213,7 +208,7 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
     description: LINGUA_COMMANDS[4].description,
     handler: async (_args, ctx) => {
       const config = deps.getConfig(ctx);
-      const target = resolveReviewerTarget(ctx, config, deps.getReviewerOverrides());
+      const target = resolveReviewerTarget(ctx, config);
       const owner = linguaKeyOwner(ctx.cwd, "enabled");
       const ownerCounts = owner === "global" || ctx.isProjectTrusted();
       ctx.ui.notify(
@@ -224,7 +219,7 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
           reviewerEffort: formatReviewerEffort(target?.thinkingLevel),
           enabledSource: owner && ownerCounts ? displaySettingsPath(owner, ctx.cwd) : undefined,
           settingsFile: displaySettingsPath("global", ctx.cwd),
-          projectSettingsIgnored: !ctx.isProjectTrusted() && hasProjectSettings(ctx.cwd),
+          projectSettingsIgnored: hasProjectSettings(ctx.cwd),
         }),
         "info",
       );
@@ -236,8 +231,8 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
     handler: async (_args, ctx) => {
       ctx.ui.notify(
         [
-          "Paste this block into .pi/settings.json (project) or the agent settings file (global).",
-          `Project settings: ${ctx.cwd}/.pi/settings.json`,
+          "Paste this block into the agent settings file. All Lingua preferences are shared globally.",
+          `Global settings: ${displaySettingsPath("global", ctx.cwd)}`,
           "",
           formatConfigJson(deps.getConfig(ctx)),
         ].join("\n"),
@@ -250,11 +245,10 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
     description: LINGUA_COMMANDS[6].description,
     handler: async (_args, ctx) => {
       const config = deps.getConfig(ctx);
-      const currentOverrides = deps.getReviewerOverrides();
+      const currentOverrides = createEmptyReviewerOverrides();
       const target = resolveReviewerTarget(ctx, config, currentOverrides);
       const next = await pickReviewerModel(ctx, currentOverrides, target);
       if (!next) return;
-      deps.setReviewerOverrides(next);
 
       // A session-model choice is represented by having no reviewer route in settings at all.
       const saved = next.useSessionModel
@@ -273,7 +267,7 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
             ctx,
           );
 
-      const resolved = resolveReviewerTarget(ctx, config, next);
+      const resolved = resolveReviewerTarget(ctx, deps.getConfig(ctx));
       const label = resolved ? `${resolved.label} (${resolved.source})` : "nothing available for this session";
       ctx.ui.notify(
         `Reviewer model: ${label} — ${saved.text}.`,
@@ -286,11 +280,10 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
     description: LINGUA_COMMANDS[7].description,
     handler: async (_args, ctx) => {
       const config = deps.getConfig(ctx);
-      const currentOverrides = deps.getReviewerOverrides();
+      const currentOverrides = createEmptyReviewerOverrides();
       const target = resolveReviewerTarget(ctx, config, currentOverrides);
       const next = await pickReviewerEffort(ctx, currentOverrides, target);
       if (!next) return;
-      deps.setReviewerOverrides(next);
 
       // `off` is the absence of a thinking level, so it removes the key instead of storing "off".
       const saved = settingsNote(
@@ -304,7 +297,7 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
         ctx,
       );
 
-      const resolved = resolveReviewerTarget(ctx, config, next);
+      const resolved = resolveReviewerTarget(ctx, deps.getConfig(ctx));
       ctx.ui.notify(
         `Reviewer effort: ${formatReviewerEffort(resolved?.thinkingLevel)} (task-run thinking unchanged) — ${saved.text}.`,
         saved.warning ? "warning" : "info",
