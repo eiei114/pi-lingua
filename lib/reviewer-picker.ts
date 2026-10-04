@@ -122,9 +122,10 @@ export async function pickReviewerEffort(
     return undefined;
   }
 
+  const selectedLevel = overrides.thinkingLevel ?? target?.thinkingLevel;
   const currentLevel =
-    overrides.thinkingLevel && overrides.thinkingLevel !== "off"
-      ? (overrides.thinkingLevel as ThinkingLevel)
+    selectedLevel && selectedLevel !== "off"
+      ? (selectedLevel as ThinkingLevel)
       : ("off" as ThinkingLevel);
 
   const levelsForUi: ThinkingLevel[] = available.includes("off")

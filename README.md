@@ -108,7 +108,7 @@ the current session.
 | `/lingua:off` | Stop reviewing, clear the widget, and save that for new sessions |
 | `/lingua:on` | Resume reviewing and save that for new sessions |
 | `/lingua:status` | Review counts, sinks, the Reviewer Model in use, and the settings file in use |
-| `/lingua:configure` | Print the settings block to paste into `.pi/settings.json` |
+| `/lingua:configure` | Print the shared settings block for the agent settings file |
 | `/lingua:model` | Pick the Reviewer Model with Pi's model selector |
 | `/lingua:effort` | Pick reviewer thinking effort with Pi's thinking selector (does not change task-run thinking) |
 
@@ -121,7 +121,10 @@ the model, so asking for a review never costs context.
 
 ## Settings
 
-Project settings (`.pi/settings.json`) override agent settings, which override the defaults.
+All Lingua preferences live in the agent settings file (`~/.pi/agent/settings.json`, or
+`PI_CODING_AGENT_DIR/settings.json` when that environment variable is set). Project
+`pi-lingua` blocks are ignored, even in trusted projects. Move any wanted project settings
+to the agent settings file explicitly; there is no automatic migration.
 
 ```json
 {
@@ -163,18 +166,19 @@ Project settings (`.pi/settings.json`) override agent settings, which override t
 
 ### Where a command's change is saved
 
-`/lingua:off`, `/lingua:on`, `/lingua:model`, and `/lingua:effort` write to a Pi settings file so the
-next session starts from the same state. Two rules decide which file:
+`/lingua:off`, `/lingua:on`, `/lingua:model`, and `/lingua:effort` always write to the
+**agent settings file**. Languages, eligibility rules, and sink settings use that same file.
+Every other key is preserved; project files are never modified by Lingua commands.
 
-- A key that a settings file already sets is edited **in that file**, because a write anywhere else
-  would be shadowed by it.
-- Keys no file sets go to the **agent settings file** (`~/.pi/agent/settings.json`), which every
-  project sees.
+Already-open sessions sharing that agent directory follow changes without restarting.
+Input and status commands read current preferences immediately; a 250 ms file poll also
+clears idle sessions' stale widgets and aborts outdated pending reviews. A completed old
+review cannot restore a widget after OFF or a reviewer change. The next eligible prompt
+uses the new model and effort; old reviews are not automatically rerun.
 
-So `/lingua:off` turns reviews off everywhere by default, while a project that declares its own
-`pi-lingua` settings in `.pi/settings.json` keeps its own answer. In an untrusted project Pi reads
-neither the project's settings nor writes them, so a command that would have to write there says so
-and saves to the agent settings file instead. Every other key in a written file is preserved.
+Choosing "Session model" shares the fallback policy, not a fixed model ID: each session
+then uses its own Task Run model. Select a specific reviewer to use one model everywhere.
+Sessions with different `PI_CODING_AGENT_DIR` values remain separate.
 
 Which key each command writes:
 

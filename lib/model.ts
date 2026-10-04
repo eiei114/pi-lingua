@@ -118,6 +118,7 @@ export async function requestReviewerCompletion(
   ctx: ExtensionContext,
   target: ReviewerTarget,
   prompt: ReviewerPrompt,
+  signal?: AbortSignal,
 ): Promise<string> {
   const context = {
     systemPrompt: prompt.systemPrompt,
@@ -131,9 +132,10 @@ export async function requestReviewerCompletion(
         .streamSimple(target.model, context, {
           maxTokens: REVIEWER_MAX_TOKENS,
           reasoning,
+          signal,
         })
         .result()
-    : await registry.complete(target.model, context, { maxTokens: REVIEWER_MAX_TOKENS });
+    : await registry.complete(target.model, context, { maxTokens: REVIEWER_MAX_TOKENS, signal });
 
   const text = extractAssistantText(message);
   if (!text) {

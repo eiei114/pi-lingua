@@ -65,20 +65,20 @@ test("writing keeps every other key in the settings file", () => {
   assert.deepEqual(document["pi-lingua"], { targetLanguage: "fr", enabled: false });
 });
 
-test("the project file keeps ownership of a key it already sets", () => {
+test("commands write globally without changing legacy project keys", () => {
   const cwd = tempProject("owner");
   const projectPath = settingsFilePath("project", cwd);
   writeSettings(projectPath, { "pi-lingua": { enabled: true } });
 
   const writes = writeLinguaSettings([{ keyPath: "enabled", value: false }], options(cwd));
 
-  assert.equal(writes[0].scope, "project");
-  assert.deepEqual(readSettingsFile(projectPath), { "pi-lingua": { enabled: false } });
-  assert.equal(existsSync(settingsFilePath("global", cwd)), false, "the global file stays untouched");
+  assert.equal(writes[0].scope, "global");
+  assert.deepEqual(readSettingsFile(projectPath), { "pi-lingua": { enabled: true } });
+  assert.equal(readSettingsFile(settingsFilePath("global", cwd))["pi-lingua"].enabled, false);
   assert.equal(loadLinguaConfig(cwd).enabled, false);
 });
 
-test("an untrusted project is not written, so the value falls back to global and reports shadowing", () => {
+test("untrusted project blocks are neither written nor allowed to shadow global settings", () => {
   const cwd = tempProject("untrusted");
   writeSettings(settingsFilePath("project", cwd), { "pi-lingua": { enabled: true } });
 
@@ -88,11 +88,7 @@ test("an untrusted project is not written, so the value falls back to global and
   );
 
   assert.equal(writes[0].scope, "global");
-  assert.equal(
-    writes[0].shadowed,
-    true,
-    "the project file still decides the value, so the caller has to say so",
-  );
+  assert.equal(writes[0].shadowed, false, "project blocks never shadow global Lingua settings");
   assert.deepEqual(readSettingsFile(settingsFilePath("project", cwd)), {
     "pi-lingua": { enabled: true },
   });
@@ -119,7 +115,7 @@ test("removing the last key removes the block instead of leaving an empty object
   assert.deepEqual(readSettingsFile(globalPath), { theme: "dark" });
 });
 
-test("removing a value clears it from every file that sets it", () => {
+test("removing a value only changes the global file", () => {
   const cwd = tempProject("all");
   writeSettings(settingsFilePath("global", cwd), { "pi-lingua": { reviewer: { model: "m" } } });
   writeSettings(settingsFilePath("project", cwd), { "pi-lingua": { reviewer: { model: "m" } } });
@@ -129,9 +125,9 @@ test("removing a value clears it from every file that sets it", () => {
     options(cwd),
   );
 
-  assert.deepEqual(writes.map((write) => write.scope).sort(), ["global", "project"]);
+  assert.deepEqual(writes.map((write) => write.scope).sort(), ["global"]);
   assert.deepEqual(readSettingsFile(settingsFilePath("global", cwd)), {});
-  assert.deepEqual(readSettingsFile(settingsFilePath("project", cwd)), {});
+  assert.deepEqual(readSettingsFile(settingsFilePath("project", cwd)), { "pi-lingua": { reviewer: { model: "m" } } });
 });
 
 test("a value that is already set is left alone", () => {
@@ -154,7 +150,7 @@ test("linguaKeyOwner names the file that decides a key", () => {
   assert.equal(linguaKeyOwner(cwd, "enabled"), "global");
 
   writeSettings(settingsFilePath("project", cwd), { "pi-lingua": { enabled: false } });
-  assert.equal(linguaKeyOwner(cwd, "enabled"), "project");
+  assert.equal(linguaKeyOwner(cwd, "enabled"), "global");
   assert.equal(hasProjectSettings(cwd), true);
 });
 

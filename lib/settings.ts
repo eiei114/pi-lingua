@@ -3,18 +3,15 @@ import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 /**
- * Reading and writing Pi's `settings.json` files.
- *
- * `global` is Pi's agent settings file; `project` is `<cwd>/.pi/settings.json`. Pi resolves project
- * over global, so a value written to a file that does not already set the key can be shadowed by a
- * more specific file. Writes therefore follow the file that owns the key (see `writeLinguaSettings`).
+ * Lingua reads and writes only Pi's agent-global settings. Legacy project blocks
+ * are left untouched but never participate in resolution.
  */
 
 export type SettingsScope = "global" | "project";
 
 export interface SettingsWriteOptions {
   cwd: string;
-  /** Pi refuses project-settings writes in an untrusted project, so pi-lingua does too. */
+  /** Retained for caller compatibility; project files are never written. */
   projectWritesAllowed: boolean;
 }
 
@@ -23,7 +20,7 @@ export interface LinguaSettingsChange {
   keyPath: string;
   /** `undefined` removes the key so the next file, or the built-in default, applies again. */
   value?: unknown;
-  /** `owner` (default) edits the file that wins; `all` edits every file that declares the key. */
+  /** Legacy hint; both choices now write only the global settings file. */
   targets?: "owner" | "all";
 }
 
@@ -103,9 +100,8 @@ export function declaresLinguaKey(
   return true;
 }
 
-/** The most specific settings file that sets `keyPath`, or `undefined` when no file does. */
+/** The global file if it declares this key; legacy project keys are ignored. */
 export function linguaKeyOwner(cwd: string, keyPath: string): SettingsScope | undefined {
-  if (declaresLinguaKey(readSettingsFile(settingsFilePath("project", cwd)), keyPath)) return "project";
   if (declaresLinguaKey(readSettingsFile(settingsFilePath("global", cwd)), keyPath)) return "global";
   return undefined;
 }
@@ -124,12 +120,8 @@ export function displaySettingsPath(
 }
 
 /**
- * Applies `pi-lingua` values to Pi's settings files.
- *
- * A key that a file already sets is edited in that file, because a write anywhere else would be
- * shadowed by it. Keys no file sets go to the global agent settings file, so a toggle survives
- * every project. Files that would not change are left untouched, and every other key in a written
- * file is preserved.
+ * Applies changes to the global agent settings while preserving unrelated keys.
+ * Legacy project files are neither migrated nor modified implicitly.
  */
 export function writeLinguaSettings(
   changes: readonly LinguaSettingsChange[],
@@ -138,7 +130,7 @@ export function writeLinguaSettings(
   const grouped = new Map<SettingsScope, LinguaSettingsChange[]>();
 
   for (const change of changes) {
-    for (const scope of targetScopes(change, options)) {
+    for (const scope of ["global"] as const) {
       const list = grouped.get(scope);
       if (list) list.push(change);
       else grouped.set(scope, [change]);
@@ -151,24 +143,6 @@ export function writeLinguaSettings(
     if (write) writes.push(write);
   }
   return writes;
-}
-
-function targetScopes(change: LinguaSettingsChange, options: SettingsWriteOptions): SettingsScope[] {
-  const projectOwns = declaresLinguaKey(
-    readSettingsFile(settingsFilePath("project", options.cwd)),
-    change.keyPath,
-  );
-  const globalOwns = declaresLinguaKey(
-    readSettingsFile(settingsFilePath("global", options.cwd)),
-    change.keyPath,
-  );
-  const writable: SettingsScope[] = [];
-  if (projectOwns && options.projectWritesAllowed) writable.push("project");
-  if (globalOwns) writable.push("global");
-
-  if (change.targets === "all") return writable;
-  if (writable.length > 0) return [writable[0]];
-  return ["global"];
 }
 
 function writeScope(
@@ -202,21 +176,7 @@ function writeScope(
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(document, null, 2)}\n`, "utf8");
 
-  return { scope, path, applied, removed, shadowed: isShadowed(scope, changes, options) };
-}
-
-/**
- * A write is shadowed when a more specific file sets the same key. That only happens when the
- * owning project file is present but the project is untrusted, so the value could not be edited.
- */
-function isShadowed(
-  scope: SettingsScope,
-  changes: readonly LinguaSettingsChange[],
-  options: SettingsWriteOptions,
-): boolean {
-  if (scope === "project") return false;
-  const project = readSettingsFile(settingsFilePath("project", options.cwd));
-  return changes.some((change) => declaresLinguaKey(project, change.keyPath));
+  return { scope, path, applied, removed, shadowed: false };
 }
 
 function splitKeyPath(keyPath: string): string[] {

@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning.
 
+## [Unreleased]
+
+### Changed
+
+- All Lingua preferences are global-only. Legacy project blocks are ignored and left untouched;
+  move desired values into the agent settings file explicitly.
+- Already-open sessions follow shared toggles, reviewer models, effort, language, and sink settings.
+  Idle widgets update within the 250 ms polling interval; pending outdated reviews are aborted
+  and cannot restore an OFF widget or publish results using an old configuration.
+
 ## [0.6.0] - 2026-10-02
 
 ### Added

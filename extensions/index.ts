@@ -5,13 +5,10 @@ import type {
   Theme,
 } from "@earendil-works/pi-coding-agent";
 import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { watchFile, unwatchFile } from "node:fs";
 import { registerLinguaCommands, type LinguaStats } from "../lib/commands.ts";
 import { loadLinguaConfig } from "../lib/config.ts";
-import {
-  createEmptyReviewerOverrides,
-  type ReviewerOverrides,
-} from "../lib/reviewer-overrides.ts";
-import { writeLinguaSettings, type LinguaSettingsChange } from "../lib/settings.ts";
+import { settingsFilePath, writeLinguaSettings, type LinguaSettingsChange } from "../lib/settings.ts";
 import { evaluateEligibility } from "../lib/eligibility.ts";
 import { requestReviewerCompletion, resolveReviewerTarget } from "../lib/model.ts";
 import {
@@ -54,12 +51,14 @@ function createReviewWidget(review: PromptReview, theme: Theme): Container {
 }
 
 export default function (pi: ExtensionAPI) {
-  /**
-   * How the running session behaves. It starts from settings so a `/lingua:off` from an earlier
-   * session still holds, and a command can change it immediately without waiting for a re-read.
-   */
-  let enabledOverride: boolean | undefined;
-  let reviewerOverrides: ReviewerOverrides = createEmptyReviewerOverrides();
+  let revision = 0;
+  let stopWatching: (() => void) | undefined;
+  const pending = new Set<AbortController>();
+
+  function invalidateReviews(): void {
+    revision += 1;
+    for (const controller of pending) controller.abort();
+  }
   let lastReview: PromptReview | undefined;
   let stats: LinguaStats = {
     reviewed: 0,
@@ -70,22 +69,50 @@ export default function (pi: ExtensionAPI) {
   };
 
   function configFor(ctx: ExtensionContext) {
-    // Untrusted project settings are invisible to Pi, so they are invisible here too.
+    // Never let project blocks or session-local overrides shadow shared preferences.
     return loadLinguaConfig(ctx.cwd, { projectTrusted: ctx.isProjectTrusted() });
   }
 
   function isEnabled(ctx: ExtensionContext): boolean {
-    return enabledOverride ?? configFor(ctx).enabled;
+    return configFor(ctx).enabled;
   }
+
+  pi.on("session_start", async (_event, ctx) => {
+    stopWatching?.();
+    invalidateReviews();
+    const path = settingsFilePath("global", ctx.cwd);
+    let snapshot = JSON.stringify(configFor(ctx));
+    const changed = () => {
+      const next = JSON.stringify(configFor(ctx));
+      if (next === snapshot) return;
+      snapshot = next;
+      invalidateReviews();
+      lastReview = undefined;
+      if (ctx.hasUI) ctx.ui.setWidget(REVIEW_WIDGET_KEY, undefined);
+    };
+    // Polling works across process boundaries and atomic file replacements on Windows.
+    watchFile(path, { interval: 250, persistent: false }, changed);
+    stopWatching = () => unwatchFile(path, changed);
+  });
+
+  pi.on("session_shutdown", async () => {
+    stopWatching?.();
+    stopWatching = undefined;
+    invalidateReviews();
+  });
 
   function persistSettings(
     changes: readonly LinguaSettingsChange[],
     ctx: ExtensionCommandContext,
   ) {
-    return writeLinguaSettings(changes, {
+    const writes = writeLinguaSettings(changes, {
       cwd: ctx.cwd,
       projectWritesAllowed: ctx.isProjectTrusted(),
     });
+    invalidateReviews();
+    lastReview = undefined;
+    if (ctx.hasUI) ctx.ui.setWidget(REVIEW_WIDGET_KEY, undefined);
+    return writes;
   }
 
   pi.registerEntryRenderer<PromptReview>(REVIEW_ENTRY_TYPE, (entry, { expanded }, theme) => {
@@ -147,7 +174,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const target = resolveReviewerTarget(ctx, config, reviewerOverrides);
+    const target = resolveReviewerTarget(ctx, config);
     if (!target) {
       stats = {
         ...stats,
@@ -159,17 +186,31 @@ export default function (pi: ExtensionAPI) {
     stats = { ...stats, reviewerLabel: target.label };
 
     const prompt = buildReviewerPrompt({ text, language: eligibility.language, config });
+    const startedAtRevision = revision;
+    const snapshot = JSON.stringify(config);
+    const controller = new AbortController();
+    pending.add(controller);
 
     let raw: string;
     try {
-      raw = await requestReviewerCompletion(ctx, target, prompt);
+      raw = await requestReviewerCompletion(ctx, target, prompt, controller.signal);
     } catch (error) {
+      if (controller.signal.aborted) return;
       stats = { ...stats, skipped: stats.skipped + 1, lastSkipReason: "reviewer call failed" };
       if (ctx.hasUI) {
         ctx.ui.notify(`pi-lingua review failed: ${describeError(error)}`, "warning");
       }
       return;
+    } finally {
+      pending.delete(controller);
     }
+
+    // Re-check even before the watcher fires; stale work must never restore an OFF widget.
+    if (
+      controller.signal.aborted ||
+      startedAtRevision !== revision ||
+      snapshot !== JSON.stringify(configFor(ctx))
+    ) return;
 
     const review = parseReviewResponse(raw, {
       prompt: text,
@@ -229,14 +270,7 @@ export default function (pi: ExtensionAPI) {
 
   registerLinguaCommands(pi, {
     getConfig: (ctx) => configFor(ctx),
-    getReviewerOverrides: () => reviewerOverrides,
-    setReviewerOverrides: (overrides) => {
-      reviewerOverrides = overrides;
-    },
     isEnabled: (ctx) => isEnabled(ctx),
-    setEnabled: (value) => {
-      enabledOverride = value;
-    },
     persistSettings,
     getLastReview: () => lastReview,
     clearWidget: (ctx) => {
