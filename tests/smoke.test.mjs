@@ -43,12 +43,34 @@ test("publishing uses Trusted Publishing and is reachable from auto-release", ()
   assert.match(autoReleaseWorkflow, /gh workflow run publish\.yml/);
 });
 
-test("ci runs typecheck, tests, the pack check, and the publish guard", () => {
+test("CI runs the actual Pi SDK behavior smoke and its release checks", () => {
   assert.match(packageJson.scripts.ci, /npm run typecheck/);
   assert.match(packageJson.scripts.ci, /npm test/);
+  assert.match(packageJson.scripts.ci, /npm run review:guardrails/);
   assert.match(packageJson.scripts.ci, /npm run pack:check/);
   assert.match(packageJson.scripts.ci, /npm run publish:guard/);
+  assert.match(packageJson.scripts.ci, /npm run smoke:pi/);
   assert.equal(packageJson.scripts["publish:guard"], "node scripts/check-no-npm-token.mjs");
+  assert.equal(packageJson.scripts["smoke:pi"], "node scripts/pi-sdk-smoke.mjs");
+});
+
+test("SDK 1.1.0 pins are exact for development while published peer ranges stay unchanged", async () => {
+  const lock = JSON.parse(await readFile(new URL("../package-lock.json", import.meta.url), "utf8"));
+  const names = [
+    "@earendil-works/pi-agent-core",
+    "@earendil-works/pi-ai",
+    "@earendil-works/pi-coding-agent",
+    "@earendil-works/pi-tui",
+  ];
+  for (const name of names) {
+    assert.equal(packageJson.devDependencies[name], "1.1.0");
+    assert.equal(lock.packages[`node_modules/${name}`].version, "1.1.0");
+  }
+  assert.deepEqual(packageJson.peerDependencies, {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+  });
 });
 
 test("the README documents the invariants a user must be able to rely on", () => {
