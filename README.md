@@ -223,11 +223,13 @@ npm install
 npm run ci
 ```
 
-`npm run ci` runs typecheck, the test suite, the workflow guardrails, an `npm pack --dry-run`, and the
-publish guard that keeps a stored npm token out of the release path.
+`npm run ci` runs typecheck, the test suite, workflow guardrails, an `npm pack --dry-run`, the
+publish guard, and an actual Pi SDK behavior smoke. The smoke uses a local deterministic provider
+and isolated Pi settings; see [`docs/verification/pi-sdk-smoke.md`](docs/verification/pi-sdk-smoke.md).
 
-The suite never touches the network. The reviewer call is injected, sinks write to temp directories,
-and AnkiConnect is probed against an unreachable port on purpose.
+The unit tests do not contact external services: reviewer calls are injected, sinks write to temp
+directories, and AnkiConnect is probed against an unreachable port. The separate Pi smoke uses an
+offline deterministic provider on loopback.
 
 ## Release
 

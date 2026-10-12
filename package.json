@@ -31,10 +31,11 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs",
-    "ci": "npm run typecheck && npm test && npm run review:guardrails && npm run pack:check && npm run publish:guard",
+    "ci": "npm run typecheck && npm test && npm run review:guardrails && npm run pack:check && npm run publish:guard && npm run smoke:pi",
     "pack:check": "npm pack --dry-run",
     "review:guardrails": "node scripts/check-review-guardrails.mjs",
-    "publish:guard": "node scripts/check-no-npm-token.mjs"
+    "publish:guard": "node scripts/check-no-npm-token.mjs",
+    "smoke:pi": "node scripts/pi-sdk-smoke.mjs"
   },
   "pi": {
     "extensions": [
@@ -50,9 +51,10 @@
     "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.99.1",
-    "@earendil-works/pi-coding-agent": "^0.99.1",
-    "@earendil-works/pi-tui": "^0.99.1",
+    "@earendil-works/pi-agent-core": "1.1.0",
+    "@earendil-works/pi-ai": "1.1.0",
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@earendil-works/pi-tui": "1.1.0",
     "@types/node": "^26.3.0",
     "typescript": "^7.0.2"
   }
