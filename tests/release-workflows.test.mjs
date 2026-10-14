@@ -5,11 +5,11 @@ import test from "node:test";
 const autoRelease = readFileSync(
   new URL("../.github/workflows/auto-release.yml", import.meta.url),
   "utf8",
-);
+).replace(/\r\n/g, "\n");
 const publish = readFileSync(
   new URL("../.github/workflows/publish.yml", import.meta.url),
   "utf8",
-);
+).replace(/\r\n/g, "\n");
 
 function eventTriggers(workflow) {
   const normalized = workflow.replace(/\r\n/g, "\n");
