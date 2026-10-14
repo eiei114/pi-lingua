@@ -12,16 +12,17 @@ const publish = readFileSync(
 );
 
 function eventTriggers(workflow) {
-  const start = workflow.indexOf("\non:\n");
-  const end = workflow.indexOf("\npermissions:\n", start);
+  const normalized = workflow.replace(/\r\n/g, "\n");
+  const start = normalized.indexOf("\non:\n");
+  const end = normalized.indexOf("\npermissions:\n", start);
   assert.notEqual(start, -1, "workflow must declare event triggers");
   assert.notEqual(end, -1, "workflow must declare permissions after triggers");
-  return workflow.slice(start, end);
+  return normalized.slice(start, end);
 }
 
 test("release and publish workflows require explicit dispatch confirmation", () => {
-  const autoReleaseEvents = eventTriggers(autoRelease);
-  const publishEvents = eventTriggers(publish);
+  const autoReleaseEvents = eventTriggers(autoRelease.replace(/\n/g, "\r\n"));
+  const publishEvents = eventTriggers(publish.replace(/\n/g, "\r\n"));
 
   for (const [events, confirmation] of [
     [autoReleaseEvents, "confirm_release"],
