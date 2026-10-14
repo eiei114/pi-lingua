@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning.
 
+## [0.6.2] - 2026-10-15
+
+### Changed
+
+- Share settings-file parsing between tolerant reads and strict writes while preserving their
+  distinct error handling.
+
 ## [0.6.1] - 2026-10-05
 
 ### Changed
