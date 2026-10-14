@@ -169,6 +169,21 @@ test("paths are reported the way a reader would type them", () => {
   assert.match(displaySettingsPath("global", cwd), /settings\.json$/);
 });
 
+test("settings reads strip a BOM while writes still reject non-object JSON", () => {
+  const cwd = tempProject("document");
+  const globalPath = settingsFilePath("global", cwd);
+  writeFileSync(globalPath, '\uFEFF{"theme":"dark"}', "utf8");
+
+  assert.deepEqual(readSettingsFile(globalPath), { theme: "dark" });
+
+  writeFileSync(globalPath, "[]", "utf8");
+  assert.equal(readSettingsFile(globalPath), undefined);
+  assert.throws(
+    () => writeLinguaSettings([{ keyPath: "enabled", value: false }], options(cwd)),
+    /is not a JSON object/,
+  );
+});
+
 test("a settings file that is not valid JSON is never overwritten", () => {
   const cwd = tempProject("malformed");
   const globalPath = settingsFilePath("global", cwd);

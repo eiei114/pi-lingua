@@ -1,19 +1,12 @@
 name: Publish to npm
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - package.json
-      - package-lock.json
-      - .github/workflows/publish.yml
-    tags:
-      - 'v*.*.*'
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
+      confirm_publish:
+        description: Publish the selected version to npm
+        required: true
+        type: boolean
       ref:
         description: 'Git ref to publish (defaults to selected ref)'
         required: false
@@ -30,6 +23,7 @@ concurrency:
 jobs:
   publish:
     name: Publish package
+    if: ${{ inputs.confirm_publish }}
     runs-on: ubuntu-latest
 
     steps:
