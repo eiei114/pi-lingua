@@ -46,11 +46,15 @@ function stripBom(text: string): string {
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 }
 
+function readSettingsDocument(filePath: string): unknown | undefined {
+  if (!existsSync(filePath)) return undefined;
+  return JSON.parse(stripBom(readFileSync(filePath, "utf8")));
+}
+
 /** Reads one settings file. A missing or malformed file reads as `undefined` rather than throwing. */
 export function readSettingsFile(filePath: string): Record<string, unknown> | undefined {
-  if (!existsSync(filePath)) return undefined;
   try {
-    const parsed: unknown = JSON.parse(stripBom(readFileSync(filePath, "utf8")));
+    const parsed = readSettingsDocument(filePath);
     return isRecord(parsed) ? parsed : undefined;
   } catch {
     return undefined;
@@ -62,8 +66,8 @@ export function readSettingsFile(filePath: string): Record<string, unknown> | un
  * empty, because writing the merged result would silently discard everything the user had.
  */
 function readSettingsFileForWrite(filePath: string): Record<string, unknown> | undefined {
-  if (!existsSync(filePath)) return undefined;
-  const parsed: unknown = JSON.parse(stripBom(readFileSync(filePath, "utf8")));
+  const parsed = readSettingsDocument(filePath);
+  if (parsed === undefined) return undefined;
   if (!isRecord(parsed)) throw new Error(`${filePath} is not a JSON object`);
   return parsed;
 }
