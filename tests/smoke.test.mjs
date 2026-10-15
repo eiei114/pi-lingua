@@ -54,7 +54,7 @@ test("CI runs the actual Pi SDK behavior smoke and its release checks", () => {
   assert.equal(packageJson.scripts["smoke:pi"], "node scripts/pi-sdk-smoke.mjs");
 });
 
-test("SDK 1.1.0 pins are exact for development while published peer ranges stay unchanged", async () => {
+test("SDK 1.2.0 pins are exact for development while published peer ranges stay unchanged", async () => {
   const lock = JSON.parse(await readFile(new URL("../package-lock.json", import.meta.url), "utf8"));
   const names = [
     "@earendil-works/pi-agent-core",
@@ -63,8 +63,8 @@ test("SDK 1.1.0 pins are exact for development while published peer ranges stay 
     "@earendil-works/pi-tui",
   ];
   for (const name of names) {
-    assert.equal(packageJson.devDependencies[name], "1.1.0");
-    assert.equal(lock.packages[`node_modules/${name}`].version, "1.1.0");
+    assert.equal(packageJson.devDependencies[name], "1.2.0");
+    assert.equal(lock.packages[`node_modules/${name}`].version, "1.2.0");
   }
   assert.deepEqual(packageJson.peerDependencies, {
     "@earendil-works/pi-ai": "*",
