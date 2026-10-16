@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning.
 
+## [0.6.2] - 2026-10-16
+
+### Changed
+
+- Verify pi-lingua against Pi SDK 1.2.0 while preserving the public peer dependency ranges.
+
 ## [0.6.1] - 2026-10-05
 
 ### Changed

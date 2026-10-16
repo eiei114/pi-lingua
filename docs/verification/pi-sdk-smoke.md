@@ -19,19 +19,20 @@ changed.
 
 ## Baseline reuse and API review
 
-The template baseline at `fc1286f52ca033f9f73fe7fc4af7662a9d1514a4` is done,
-merged as PR #130, independently approved on that exact HEAD, and has an accepted
-runtime-verification receipt for the same SHA. This package adopts its frozen
-SDK pins and behavior-v2 actual-host smoke/report pattern, while checking
-pi-lingua-specific feature responses instead of copying template fixture
-assertions. Peer dependency wildcards remain unchanged.
+The Pi SDK 1.2.0 template baseline (DOT-2415) is done and merged as
+[PR #131](https://github.com/eiei114/pi-extension-template/pull/131) at exact
+HEAD `4b0554151161eae665aa2cdc845a2d7df40e4781`; that HEAD was independently
+approved and its runtime-verification receipt accepted. This package reuses its
+frozen SDK pins, compatibility notes, and behavior-v2 actual-host smoke/report
+pattern, while checking pi-lingua-specific feature responses rather than copying
+template fixture assertions. Peer dependency wildcards remain unchanged.
 
 Compared this package's extension, UI/TUI, settings, and model-runtime calls with
-the baseline `docs/pi-sdk-compatibility.md` and the SDK 1.0.0/1.1.0 release notes.
-No used API is deprecated or removed; `ModelRegistry.complete()` and
-`streamSimple()` are both present in the pinned 1.1.0 declarations. No speculative
-source rewrite was needed; exact-version typecheck and the real host smoke verify
-the current usage.
+the baseline `docs/pi-sdk-compatibility.md` and the SDK 1.2.0 release notes. The
+release changes `before_agent_start` event fields to a `messageType` union, but
+pi-lingua does not use that event. No used API is deprecated or removed, so no
+speculative source rewrite was needed; exact-version typecheck and the real host
+smoke verify the current usage.
 
 The five cases verify:
 

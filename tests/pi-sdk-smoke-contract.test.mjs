@@ -22,10 +22,10 @@ const successfulProcess = { exit_code: 0, signal: null, forced: false, output: "
 test("smoke contract pins the four frozen SDK versions and parses JSONL", () => {
   assert.equal(VERIFICATION_CONTRACT, "pi-sdk-behavior-v2");
   assert.deepEqual(SDK_VERSIONS, {
-    "@earendil-works/pi-agent-core": "1.1.0",
-    "@earendil-works/pi-ai": "1.1.0",
-    "@earendil-works/pi-coding-agent": "1.1.0",
-    "@earendil-works/pi-tui": "1.1.0",
+    "@earendil-works/pi-agent-core": "1.2.0",
+    "@earendil-works/pi-ai": "1.2.0",
+    "@earendil-works/pi-coding-agent": "1.2.0",
+    "@earendil-works/pi-tui": "1.2.0",
   });
   const record = { type: "response", command: "get_commands", success: true };
   assert.deepEqual(parseJsonLines(`not-json\r\n${JSON.stringify(record)}\n\n`), [record]);
@@ -118,11 +118,11 @@ test("reload requires second-process registration AND feature output AND natural
 });
 
 test("native shell boundary requires exact SDK version output and clean process status", () => {
-  assert.ok(behaviorAssertions("host_shell", { exit_code: 0, output: "1.1.0\r\n", expectedVersion: "1.1.0" })[0].passed);
+  assert.ok(behaviorAssertions("host_shell", { exit_code: 0, output: "1.2.0\r\n", expectedVersion: "1.2.0" })[0].passed);
   for (const observation of [
-    { exit_code: 1, output: "1.1.0", expectedVersion: "1.1.0" },
-    { exit_code: 0, output: "11.1.0", expectedVersion: "1.1.0" },
-    { exit_code: 0, output: "1.1.0 but error", expectedVersion: "1.1.0" },
+    { exit_code: 1, output: "1.2.0", expectedVersion: "1.2.0" },
+    { exit_code: 0, output: "11.2.0", expectedVersion: "1.2.0" },
+    { exit_code: 0, output: "1.2.0 but error", expectedVersion: "1.2.0" },
   ]) {
     assert.equal(behaviorAssertions("host_shell", observation)[0].passed, false);
   }
