@@ -55,7 +55,8 @@ test("release and publishing require explicit workflow dispatch", () => {
   assert.match(autoReleaseWorkflow, /confirm_release:[\s\S]*?required: true[\s\S]*?type: boolean/);
   assert.match(autoReleaseWorkflow, /if: github\.ref == 'refs\/heads\/main' && inputs\.confirm_release/);
   assert.match(autoReleaseWorkflow, /contents:\s*write/);
-  assert.match(autoReleaseWorkflow, /git rev-parse HEAD\^/);
+  assert.match(autoReleaseWorkflow, /run: node scripts\/check-release-version\.mjs/);
+  assert.doesNotMatch(autoReleaseWorkflow, /git rev-parse HEAD\^/);
   assert.doesNotMatch(autoReleaseWorkflow, /gh workflow run publish\.yml/);
 });
 
