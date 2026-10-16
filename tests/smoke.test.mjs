@@ -13,6 +13,18 @@ const autoReleaseWorkflow = await readFile(
 );
 const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
 
+function workflowTriggers(content) {
+  const lines = content.split(/\r?\n/);
+  const onIndex = lines.findIndex((line) => /^on:\s*$/.test(line));
+  assert.notEqual(onIndex, -1, "workflow must declare an event map");
+  const triggers = [];
+  for (let index = onIndex + 1; index < lines.length && /^\s/.test(lines[index]); index += 1) {
+    const match = lines[index].match(/^  ([\w-]+):/);
+    if (match) triggers.push(match[1]);
+  }
+  return triggers;
+}
+
 test("the package exposes only the extension entrypoint it actually ships", () => {
   assert.deepEqual(packageJson.pi, { extensions: ["./extensions"] });
   // The template's example resources must not survive into a shipped package.
@@ -34,13 +46,17 @@ test("the package is discoverable as a Pi package", () => {
   assert.ok(packageJson.keywords.includes("pi-package"));
 });
 
-test("publishing uses Trusted Publishing and is reachable from auto-release", () => {
+test("release and publishing require explicit workflow dispatch", () => {
   assert.match(publishWorkflow, /id-token:\s*write/);
+  assert.deepEqual(workflowTriggers(publishWorkflow), ["workflow_dispatch"]);
   assert.match(publishWorkflow, /workflow_dispatch:/);
   assert.match(publishWorkflow, /npm publish --access public/);
-  assert.match(autoReleaseWorkflow, /actions:\s*write/);
+  assert.deepEqual(workflowTriggers(autoReleaseWorkflow), ["workflow_dispatch"]);
+  assert.match(autoReleaseWorkflow, /confirm_release:[\s\S]*?required: true[\s\S]*?type: boolean/);
+  assert.match(autoReleaseWorkflow, /if: github\.ref == 'refs\/heads\/main' && inputs\.confirm_release/);
   assert.match(autoReleaseWorkflow, /contents:\s*write/);
-  assert.match(autoReleaseWorkflow, /gh workflow run publish\.yml/);
+  assert.match(autoReleaseWorkflow, /git rev-parse HEAD\^/);
+  assert.doesNotMatch(autoReleaseWorkflow, /gh workflow run publish\.yml/);
 });
 
 test("CI runs the actual Pi SDK behavior smoke and its release checks", () => {

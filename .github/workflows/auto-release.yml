@@ -1,18 +1,20 @@
-name: Auto Release
+name: Manual Release
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - package.json
+  workflow_dispatch:
+    inputs:
+      confirm_release:
+        description: Confirm the package version on main is approved for release
+        required: true
+        type: boolean
 
 permissions:
-  actions: write
   contents: write
 
 jobs:
   release:
     name: Create release for new version
+    if: github.ref == 'refs/heads/main' && inputs.confirm_release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -24,7 +26,7 @@ jobs:
         id: check
         shell: bash
         run: |
-          BEFORE="${{ github.event.before }}"
+          BEFORE="$(git rev-parse HEAD^ 2>/dev/null || true)"
           CURRENT_VERSION=$(node -p "require('./package.json').version")
           TAG="v${CURRENT_VERSION}"
 
@@ -71,14 +73,5 @@ jobs:
           git tag "$TAG"
           git push origin "$TAG"
           gh release create "$TAG" --title "$TAG" --notes "$NOTES"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Trigger publish workflow
-        if: steps.check.outputs.released == 'true'
-        shell: bash
-        run: |
-          TAG="${{ steps.check.outputs.tag }}"
-          gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
