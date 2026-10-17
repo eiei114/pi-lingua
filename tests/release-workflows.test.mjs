@@ -10,6 +10,10 @@ const publish = readFileSync(
   new URL("../.github/workflows/publish.yml", import.meta.url),
   "utf8",
 ).replace(/\r\n/g, "\n");
+const releaseGuide = readFileSync(
+  new URL("../docs/release.md", import.meta.url),
+  "utf8",
+).replace(/\r\n/g, "\n");
 
 function eventTriggers(workflow) {
   const normalized = workflow.replace(/\r\n/g, "\n");
@@ -38,4 +42,37 @@ test("release and publish workflows require explicit dispatch confirmation", () 
   assert.match(autoRelease, /^    if: \$\{\{ inputs\.confirm_release \}\}$/m);
   assert.match(publish, /^    if: \$\{\{ inputs\.confirm_publish \}\}$/m);
   assert.match(autoRelease, /confirm_publish=true/);
+});
+
+test("release guide documents manual dispatch after pushing version changes", () => {
+  const dispatch = "gh workflow run auto-release.yml --ref main -f confirm_release=true";
+  assert.equal(releaseGuide.split(dispatch).length - 1, 2);
+  assert.match(
+    releaseGuide,
+    /After manually dispatching .*auto-release\.yml.* on `main` with\s+`confirm_release=true`/,
+  );
+  assert.match(releaseGuide, /does\s+not run automatically when the version change is pushed/);
+  assert.doesNotMatch(
+    releaseGuide,
+    /auto-release\.yml` detects the `package\.json` version change on `main`/,
+  );
+});
+
+test("auto release rejects older versions before tag creation or publish dispatch", () => {
+  const guard = autoRelease.indexOf(
+    'if [ "$HIGHEST_VERSION" != "$CURRENT_VERSION" ]; then',
+  );
+  assert.notEqual(guard, -1);
+  assert.match(autoRelease, /HIGHEST_VERSION=.*sort -V/);
+  assert.match(
+    autoRelease,
+    /is older than latest tag \$\{PREVIOUS_VERSION\}; skipping auto release\./,
+  );
+  assert.match(
+    autoRelease.slice(guard),
+    /released=false[\s\S]*?exit 0[\s\S]*?fi/,
+  );
+  assert.ok(guard < autoRelease.indexOf('if git tag -l "$TAG"'));
+  assert.ok(guard < autoRelease.indexOf('git tag "$TAG"'));
+  assert.ok(guard < autoRelease.indexOf("gh workflow run publish.yml"));
 });

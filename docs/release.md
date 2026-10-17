@@ -14,10 +14,13 @@ stored in this repository or in GitHub secrets.
    git add package.json package-lock.json CHANGELOG.md
    git commit -m "chore: release x.y.z"
    git push
+   gh workflow run auto-release.yml --ref main -f confirm_release=true
    ```
 
-2. `.github/workflows/auto-release.yml` detects the `package.json` version change on `main`, creates
-   the `v<version>` tag, publishes a GitHub Release, and dispatches `publish.yml` explicitly.
+2. After manually dispatching `.github/workflows/auto-release.yml` on `main` with
+   `confirm_release=true`, the workflow processes the `package.json` version, creates the
+   `v<version>` tag, publishes a GitHub Release, and dispatches `publish.yml` explicitly. It does
+   not run automatically when the version change is pushed.
 3. `.github/workflows/publish.yml` runs `npm run ci`, skips the version when it already exists on npm,
    and otherwise publishes with `id-token: write`.
 
@@ -79,6 +82,7 @@ npm version patch --no-git-tag-version
 git add package.json package-lock.json CHANGELOG.md
 git commit -m "chore: release x.y.z"
 git push
+gh workflow run auto-release.yml --ref main -f confirm_release=true
 
 # 4. verify. Name the publish run explicitly, because a bare `gh run watch` can pick up the CI run
 #    from the same push, and it exits 0 on a failed run unless --exit-status is passed.

@@ -38,6 +38,13 @@ jobs:
           fi
           PREVIOUS_VERSION="${PREVIOUS_TAG#v}"
 
+          HIGHEST_VERSION=$(printf '%s\n' "$CURRENT_VERSION" "$PREVIOUS_VERSION" | sort -V | tail -1)
+          if [ "$HIGHEST_VERSION" != "$CURRENT_VERSION" ]; then
+            echo "package.json version ${CURRENT_VERSION} is older than latest tag ${PREVIOUS_VERSION}; skipping auto release."
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [ "$CURRENT_VERSION" = "$PREVIOUS_VERSION" ]; then
             echo "package.json version did not change (${CURRENT_VERSION}); skipping."
             echo "released=false" >> "$GITHUB_OUTPUT"
