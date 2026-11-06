@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning.
 
+## [0.6.3] - 2026-11-07
+
+### Fixed
+
+- Derive Pi SDK smoke expectations from the exact development dependency pins so SDK updates do not
+  fail against a stale hard-coded version; verify compatibility with SDK 1.4.0.
+
 ## [0.6.2] - 2026-10-15
 
 ### Changed

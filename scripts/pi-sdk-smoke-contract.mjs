@@ -1,10 +1,17 @@
+import { readFileSync } from "node:fs";
+
+const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+const sdkPackages = [
+  "@earendil-works/pi-agent-core",
+  "@earendil-works/pi-ai",
+  "@earendil-works/pi-coding-agent",
+  "@earendil-works/pi-tui",
+];
+
 export const VERIFICATION_CONTRACT = "pi-sdk-behavior-v2";
-export const SDK_VERSIONS = {
-  "@earendil-works/pi-agent-core": "1.2.0",
-  "@earendil-works/pi-ai": "1.2.0",
-  "@earendil-works/pi-coding-agent": "1.2.0",
-  "@earendil-works/pi-tui": "1.2.0",
-};
+export const SDK_VERSIONS = Object.fromEntries(
+  sdkPackages.map((name) => [name, manifest.devDependencies?.[name]]),
+);
 export const REQUIRED_COMMANDS = [
   "lingua:last",
   "lingua:card",

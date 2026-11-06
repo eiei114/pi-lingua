@@ -1,7 +1,8 @@
 # Pi SDK compatibility smoke (pi-lingua)
 
 `npm run smoke:pi` exercises the extension in isolated subprocesses using the exact
-SDK versions recorded in `pi-sdk-smoke.json`. The CI workflow runs
+SDK versions pinned in `package.json`; `pi-sdk-smoke.json` records the versions
+and observations from the last run. The CI workflow runs
 `npm run ci` on both Linux and Windows, so `host_shell` checks the native shell
 boundary on each platform.
 
@@ -23,9 +24,11 @@ The Pi SDK 1.2.0 template baseline (DOT-2415) is done and merged as
 [PR #131](https://github.com/eiei114/pi-extension-template/pull/131) at exact
 HEAD `4b0554151161eae665aa2cdc845a2d7df40e4781`; that HEAD was independently
 approved and its runtime-verification receipt accepted. This package reuses its
-frozen SDK pins, compatibility notes, and behavior-v2 actual-host smoke/report
-pattern, while checking pi-lingua-specific feature responses rather than copying
-template fixture assertions. Peer dependency wildcards remain unchanged.
+compatibility notes and behavior-v2 actual-host smoke/report pattern, while checking
+pi-lingua-specific feature responses rather than copying template fixture assertions.
+This package now tracks the Pi SDK version in its exact development dependency pins
+and verifies the installed version in the smoke; the 1.4.0 update leaves published
+peer dependency wildcards unchanged.
 
 Compared this package's extension, UI/TUI, settings, and model-runtime calls with
 the baseline `docs/pi-sdk-compatibility.md` and the SDK 1.2.0 release notes. The
