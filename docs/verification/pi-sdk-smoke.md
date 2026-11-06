@@ -20,22 +20,22 @@ changed.
 
 ## Baseline reuse and API review
 
-The Pi SDK 1.2.0 template baseline (DOT-2415) is done and merged as
-[PR #131](https://github.com/eiei114/pi-extension-template/pull/131) at exact
-HEAD `4b0554151161eae665aa2cdc845a2d7df40e4781`; that HEAD was independently
-approved and its runtime-verification receipt accepted. This package reuses its
-compatibility notes and behavior-v2 actual-host smoke/report pattern, while checking
-pi-lingua-specific feature responses rather than copying template fixture assertions.
-This package now tracks the Pi SDK version in its exact development dependency pins
-and verifies the installed version in the smoke; the 1.4.0 update leaves published
-peer dependency wildcards unchanged.
+The Pi SDK 1.5.0 template baseline (DOT-3243) is done and merged as
+[PR #141](https://github.com/eiei114/pi-extension-template/pull/141) at exact
+HEAD `e280e806c0e26f7ff4dd98627091c3cb4c9397b3`; its independent review and
+Windows runtime-smoke evidence are recorded on the baseline issue. This package
+reuses the baseline's `docs/pi-sdk-compatibility.md` guidance and behavior-v2
+actual-host smoke/report pattern, while checking pi-lingua-specific feature
+responses instead of copying template fixture assertions.
 
-Compared this package's extension, UI/TUI, settings, and model-runtime calls with
-the baseline `docs/pi-sdk-compatibility.md` and the SDK 1.2.0 release notes. The
-release changes `before_agent_start` event fields to a `messageType` union, but
-pi-lingua does not use that event. No used API is deprecated or removed, so no
-speculative source rewrite was needed; exact-version typecheck and the real host
-smoke verify the current usage.
+The [Pi v1.5.0 release notes](https://github.com/earendil-works/pi/releases/tag/v1.5.0)
+move tool argument validation to `@earendil-works/pi-schema`: TypeBox constructs
+outside JSON Schema no longer enforce tool arguments, and loosely typed values may
+be coerced before validation. The pi-ai npm package also no longer re-exports
+TypeBox. pi-lingua does not define tool argument schemas or use TypeBox/`StringEnum`,
+so neither change requires a source migration. The
+existing public peer dependency wildcards remain unchanged; the exact SDK 1.5.0
+development pins and actual-host smoke verify this package's used APIs.
 
 The five cases verify:
 
