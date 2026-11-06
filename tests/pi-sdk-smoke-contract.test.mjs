@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   behaviorAssertions,
@@ -11,6 +12,7 @@ import {
   VERIFICATION_CONTRACT,
 } from "../scripts/pi-sdk-smoke-contract.mjs";
 
+const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const commands = REQUIRED_COMMANDS;
 const interaction = (inputText) => ({
   prompt: { success: true, data: { disposition: "started" } },
@@ -19,14 +21,11 @@ const interaction = (inputText) => ({
 });
 const successfulProcess = { exit_code: 0, signal: null, forced: false, output: "" };
 
-test("smoke contract pins the four frozen SDK versions and parses JSONL", () => {
+test("smoke contract reads the four exact SDK pins from the manifest and parses JSONL", () => {
   assert.equal(VERIFICATION_CONTRACT, "pi-sdk-behavior-v2");
-  assert.deepEqual(SDK_VERSIONS, {
-    "@earendil-works/pi-agent-core": "1.2.0",
-    "@earendil-works/pi-ai": "1.2.0",
-    "@earendil-works/pi-coding-agent": "1.2.0",
-    "@earendil-works/pi-tui": "1.2.0",
-  });
+  assert.deepEqual(SDK_VERSIONS, Object.fromEntries(Object.keys(SDK_VERSIONS)
+    .map((name) => [name, manifest.devDependencies[name]])));
+  assert.equal(Object.keys(SDK_VERSIONS).length, 4);
   const record = { type: "response", command: "get_commands", success: true };
   assert.deepEqual(parseJsonLines(`not-json\r\n${JSON.stringify(record)}\n\n`), [record]);
 });
@@ -118,11 +117,12 @@ test("reload requires second-process registration AND feature output AND natural
 });
 
 test("native shell boundary requires exact SDK version output and clean process status", () => {
-  assert.ok(behaviorAssertions("host_shell", { exit_code: 0, output: "1.2.0\r\n", expectedVersion: "1.2.0" })[0].passed);
+  const sdkVersion = SDK_VERSIONS["@earendil-works/pi-coding-agent"];
+  assert.ok(behaviorAssertions("host_shell", { exit_code: 0, output: `${sdkVersion}\r\n`, expectedVersion: sdkVersion })[0].passed);
   for (const observation of [
-    { exit_code: 1, output: "1.2.0", expectedVersion: "1.2.0" },
-    { exit_code: 0, output: "11.2.0", expectedVersion: "1.2.0" },
-    { exit_code: 0, output: "1.2.0 but error", expectedVersion: "1.2.0" },
+    { exit_code: 1, output: sdkVersion, expectedVersion: sdkVersion },
+    { exit_code: 0, output: `11.${sdkVersion}`, expectedVersion: sdkVersion },
+    { exit_code: 0, output: `${sdkVersion} but error`, expectedVersion: sdkVersion },
   ]) {
     assert.equal(behaviorAssertions("host_shell", observation)[0].passed, false);
   }
