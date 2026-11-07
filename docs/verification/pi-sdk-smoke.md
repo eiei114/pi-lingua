@@ -34,8 +34,11 @@ outside JSON Schema no longer enforce tool arguments, and loosely typed values m
 be coerced before validation. The pi-ai npm package also no longer re-exports
 TypeBox. pi-lingua does not define tool argument schemas or use TypeBox/`StringEnum`,
 so neither change requires a source migration. The
-existing public peer dependency wildcards remain unchanged; the exact SDK 1.5.0
-development pins and actual-host smoke verify this package's used APIs.
+existing public peer dependency wildcards remain unchanged. The exact SDK 1.5.0
+development pins typecheck this package's used APIs, and the actual-host smoke
+verifies only the five paths listed below. The interactive `/lingua:model` and
+`/lingua:effort` selectors are covered by typecheck and unit tests, not by the
+actual-host smoke.
 
 The five cases verify:
 
