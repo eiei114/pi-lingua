@@ -5,6 +5,10 @@ stored in this repository or in GitHub secrets.
 
 ## How a release happens
 
+A release is two manual dispatches, in order: `auto-release.yml` creates the tag and the GitHub
+Release, then `publish.yml` publishes to npm. Neither workflow starts the other, and neither runs on
+push.
+
 1. Bump the version and update `CHANGELOG.md` in the same change. Use `--no-git-tag-version`:
    `auto-release.yml` creates the tag, and `npm version` would leave a duplicate local tag behind.
 
@@ -19,13 +23,19 @@ stored in this repository or in GitHub secrets.
 
 2. After manually dispatching `.github/workflows/auto-release.yml` on `main` with
    `confirm_release=true`, the workflow processes the `package.json` version, creates the
-   `v<version>` tag, publishes a GitHub Release, and dispatches `publish.yml` explicitly. It does
+   `v<version>` tag, and publishes a GitHub Release. It does not start `publish.yml`, and it does
    not run automatically when the version change is pushed.
-3. `.github/workflows/publish.yml` runs `npm run ci`, skips the version when it already exists on npm,
-   and otherwise publishes with `id-token: write`.
+3. Dispatch `.github/workflows/publish.yml` for the tag that step 2 created:
+
+   ```bash
+   gh workflow run publish.yml --ref "v<version>" -f ref="v<version>"
+   ```
+
+   The workflow runs `npm run ci`, skips the version when it already exists on npm, and otherwise
+   publishes with `id-token: write`.
 
 Do not rely on `push.tags` alone. A tag created by `GITHUB_TOKEN` does not trigger a `push.tags`
-workflow, which is why `auto-release.yml` dispatches `publish.yml` by hand.
+workflow, which is why `publish.yml` has to be dispatched by hand.
 
 ## First publish / Trusted Publisher not configured
 
@@ -84,7 +94,12 @@ git commit -m "chore: release x.y.z"
 git push
 gh workflow run auto-release.yml --ref main -f confirm_release=true
 
-# 4. verify. Name the publish run explicitly, because a bare `gh run watch` can pick up the CI run
+# 4. publish the tag that auto-release.yml just created. auto-release.yml stops at the tag and
+#    the GitHub Release; publish.yml is a separate dispatch.
+VERSION=$(node -p "require('./package.json').version")
+gh workflow run publish.yml --ref "v${VERSION}" -f ref="v${VERSION}"
+
+# 5. verify. Name the publish run explicitly, because a bare `gh run watch` can pick up the CI run
 #    from the same push, and it exits 0 on a failed run unless --exit-status is passed.
 RUN=$(gh run list --workflow=publish.yml --limit 1 --json databaseId --jq '.[0].databaseId')
 gh run watch --exit-status "$RUN"

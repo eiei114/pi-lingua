@@ -60,6 +60,23 @@ test("release and publishing require explicit workflow dispatch", () => {
   assert.doesNotMatch(autoReleaseWorkflow, /gh workflow run publish\.yml/);
 });
 
+test("release docs and auto-release.yml agree that publishing is a separate dispatch", async () => {
+  const releaseDoc = await readFile(new URL("../docs/release.md", import.meta.url), "utf8");
+  // auto-release.yml stops at the tag and release, so no document may claim it starts publish.yml.
+  for (const [label, content] of [
+    ["docs/release.md", releaseDoc],
+    ["README.md", readme],
+  ]) {
+    assert.doesNotMatch(
+      content,
+      /auto-release\.yml[^.\n]*\bdispatches `publish\.yml`/i,
+      `${label} claims auto-release.yml dispatches publish.yml`,
+    );
+  }
+  // The documented two-step flow must still dispatch publish.yml by hand.
+  assert.match(releaseDoc, /gh workflow run publish\.yml --ref/);
+});
+
 test("CI runs the actual Pi SDK behavior smoke and its release checks", () => {
   assert.match(packageJson.scripts.ci, /npm run typecheck/);
   assert.match(packageJson.scripts.ci, /npm test/);

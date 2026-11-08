@@ -233,8 +233,9 @@ offline deterministic provider on loopback.
 
 ## Release
 
-Version bump and push; `auto-release.yml` tags the commit and dispatches `publish.yml`, which
-publishes through npm Trusted Publishing. See [`docs/release.md`](docs/release.md).
+Version bump and push, then dispatch `auto-release.yml` to tag the commit and `publish.yml` to
+publish through npm Trusted Publishing. The two workflows are separate manual dispatches. See
+[`docs/release.md`](docs/release.md).
 
 ## Security
 

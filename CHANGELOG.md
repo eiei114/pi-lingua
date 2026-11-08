@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning.
 
+## [0.6.5] - 2026-11-08
+
+### Fixed
+
+- Document the release as two manual dispatches. `auto-release.yml` only creates the tag and the
+  GitHub Release; `publish.yml` has to be dispatched for that tag separately, which is what
+  `.github/workflows/auto-release.yml` has actually done since the manual-dispatch gate.
+
 ## [0.6.4] - 2026-11-07
 
 ### Changed
