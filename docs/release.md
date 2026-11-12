@@ -25,11 +25,21 @@ push.
    `confirm_release=true`, the workflow processes the `package.json` version, creates the
    `v<version>` tag, and publishes a GitHub Release. It does not start `publish.yml`, and it does
    not run automatically when the version change is pushed.
-3. Dispatch `.github/workflows/publish.yml` for the tag that step 2 created:
+3. Wait for that run to succeed, then dispatch `.github/workflows/publish.yml` for the tag it
+   created:
 
    ```bash
-   gh workflow run publish.yml --ref "v<version>" -f ref="v<version>"
+   RUN=$(gh run list --workflow=auto-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+   gh run watch --exit-status "$RUN"
+   git fetch --tags origin
+   TAG=$(git tag --list 'v[0-9]*' --sort=-version:refname | head -1)
+   gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"
    ```
+
+   `gh workflow run` fails with a 422 while the ref does not exist, so the tag has to be there
+   before the dispatch. Read the tag out of the repository instead of the version in your local
+   `package.json`: `auto-release.yml` tags whatever `main` pointed at, which can be a later version
+   than your working tree.
 
    The workflow runs `npm run ci`, skips the version when it already exists on npm, and otherwise
    publishes with `id-token: write`.
@@ -94,10 +104,13 @@ git commit -m "chore: release x.y.z"
 git push
 gh workflow run auto-release.yml --ref main -f confirm_release=true
 
-# 4. publish the tag that auto-release.yml just created. auto-release.yml stops at the tag and
+# 4. wait for that run, then publish the tag it created. auto-release.yml stops at the tag and
 #    the GitHub Release; publish.yml is a separate dispatch.
-VERSION=$(node -p "require('./package.json').version")
-gh workflow run publish.yml --ref "v${VERSION}" -f ref="v${VERSION}"
+RUN=$(gh run list --workflow=auto-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run watch --exit-status "$RUN"
+git fetch --tags origin
+TAG=$(git tag --list 'v[0-9]*' --sort=-version:refname | head -1)
+gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"
 
 # 5. verify. Name the publish run explicitly, because a bare `gh run watch` can pick up the CI run
 #    from the same push, and it exits 0 on a failed run unless --exit-status is passed.

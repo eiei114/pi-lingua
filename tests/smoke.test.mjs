@@ -58,23 +58,71 @@ test("release and publishing require explicit workflow dispatch", () => {
   assert.match(autoReleaseWorkflow, /run: node scripts\/check-release-version\.mjs/);
   assert.doesNotMatch(autoReleaseWorkflow, /git rev-parse HEAD\^/);
   assert.doesNotMatch(autoReleaseWorkflow, /gh workflow run publish\.yml/);
+  // A REST dispatch (`gh api ... /dispatches`) names the workflow file too, so any mention of
+  // publish.yml in this workflow means it starts publishing again.
+  assert.doesNotMatch(autoReleaseWorkflow, /publish\.yml/);
 });
+
+// auto-release.yml stops at the tag and release, so no document may claim it starts publish.yml.
+// A negated statement ("It does not start `publish.yml`", "never dispatches") is accurate and must
+// stay allowed; only an affirmative claim is a contradiction.
+const dispatchVerbs = /\b(?:dispatches|dispatch|starts|start|triggers|trigger|launches|launch|invokes|invoke|calls|call|runs|run)\b/i;
+const negations = /\b(?:not|never|neither|no longer|doesn't|don't|isn't|won't)\b/i;
+
+function affirmativeDispatchClaims(label, content) {
+  return content.split(/\r?\n/).flatMap((line, index) => {
+    // Sentence-scoped: a period that ends a sentence counts, the one inside ".yml" does not.
+    const masked = line.replace(/\.yml/gi, "_yml");
+    const start = masked.search(/auto-release_yml/i);
+    if (start === -1) return [];
+    const sentence = masked.slice(start).split(".")[0];
+    if (!/publish_yml/i.test(sentence)) return [];
+    const verb = sentence.match(dispatchVerbs);
+    if (!verb) return [];
+    // "auto-release.yml does not start publish.yml" negates before the verb and is allowed.
+    if (negations.test(sentence.slice(0, verb.index))) return [];
+    return [`${label}:${index + 1}: ${line.trim()}`];
+  });
+}
+
+function publishDispatchCommands(releaseDoc) {
+  return releaseDoc
+    .split(/\r?\n/)
+    .filter((line) => /gh workflow run publish\.yml/.test(line));
+}
 
 test("release docs and auto-release.yml agree that publishing is a separate dispatch", async () => {
   const releaseDoc = await readFile(new URL("../docs/release.md", import.meta.url), "utf8");
-  // auto-release.yml stops at the tag and release, so no document may claim it starts publish.yml.
   for (const [label, content] of [
     ["docs/release.md", releaseDoc],
     ["README.md", readme],
   ]) {
-    assert.doesNotMatch(
-      content,
-      /auto-release\.yml[^.\n]*\bdispatches `publish\.yml`/i,
-      `${label} claims auto-release.yml dispatches publish.yml`,
-    );
+    const claims = affirmativeDispatchClaims(label, content);
+    assert.deepEqual(claims, [], `${label} claims auto-release.yml dispatches publish.yml: ${claims}`);
   }
-  // The documented two-step flow must still dispatch publish.yml by hand.
-  assert.match(releaseDoc, /gh workflow run publish\.yml --ref/);
+  // Prove the guard bites on the claim it exists for and still tolerates the negated wording.
+  assert.deepEqual(
+    affirmativeDispatchClaims("fixture", "`auto-release.yml` dispatches `publish.yml` automatically."),
+    ["fixture:1: `auto-release.yml` dispatches `publish.yml` automatically."],
+  );
+  assert.deepEqual(
+    affirmativeDispatchClaims("fixture", "It does not start `publish.yml`, and neither does `auto-release.yml`."),
+    [],
+  );
+
+  // The documented two-step flow must still dispatch publish.yml by hand, pinned to the tag that
+  // auto-release.yml created — never to main, and never to two different refs in one command.
+  const commands = publishDispatchCommands(releaseDoc);
+  assert.notEqual(commands.length, 0, "docs/release.md must document the publish.yml dispatch");
+  for (const command of commands) {
+    const workflowRef = command.match(/--ref\s+"?([^\s"]+)"?/);
+    const inputRef = command.match(/-f\s+ref=("?)([^\s"]+)\1/);
+    assert.ok(workflowRef && inputRef, `documented publish dispatch must pin --ref and -f ref: ${command}`);
+    for (const ref of [workflowRef[1], inputRef[2]]) {
+      assert.notEqual(ref.toLowerCase(), "main", `publish dispatch must not run on main: ${command}`);
+    }
+    assert.equal(workflowRef[1], inputRef[2], `--ref and -f ref must name the same release tag: ${command}`);
+  }
 });
 
 test("CI runs the actual Pi SDK behavior smoke and its release checks", () => {

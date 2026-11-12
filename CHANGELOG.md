@@ -10,7 +10,9 @@ This project follows semantic versioning.
 
 - Document the release as two manual dispatches. `auto-release.yml` only creates the tag and the
   GitHub Release; `publish.yml` has to be dispatched for that tag separately, which is what
-  `.github/workflows/auto-release.yml` has actually done since the manual-dispatch gate.
+  `.github/workflows/auto-release.yml` has actually done since the manual-dispatch gate. The guide
+  now says to wait for the release run and to take the publish ref from the tag it created, not
+  from the local `package.json`.
 
 ## [0.6.4] - 2026-11-07
 
