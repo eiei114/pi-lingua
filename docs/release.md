@@ -18,36 +18,48 @@ push.
    git add package.json package-lock.json CHANGELOG.md
    git commit -m "chore: release x.y.z"
    git push
-   gh workflow run auto-release.yml --ref main -f confirm_release=true
    ```
 
-2. After manually dispatching `.github/workflows/auto-release.yml` on `main` with
-   `confirm_release=true`, the workflow processes the `package.json` version, creates the
-   `v<version>` tag, and publishes a GitHub Release. It does not start `publish.yml`, and it does
-   not run automatically when the version change is pushed.
-3. Wait for that run to succeed, then dispatch `.github/workflows/publish.yml` for the tag it
-   created:
+2. Dispatch `.github/workflows/auto-release.yml` on `main` with `confirm_release=true` (step 3 below
+   does it). The workflow processes the `package.json` version, creates the `v<version>` tag, and
+   publishes a GitHub Release. It does not start `publish.yml`, and it does not run automatically
+   when the version change is pushed.
+3. Dispatch the release and wait for the run **that dispatch** started, then publish the tag that
+   run created. Keep this in one shell: the run id and the tag both have to come from this dispatch,
+   and a variable from an earlier step does not survive it.
 
    ```bash
    set -euo pipefail
-   # Name the run by the commit it was dispatched for: `--limit 1` resolves at run time and would
-   # follow a different dispatch (or a lagging list result) instead of the release you just started.
-   SHA=$(git rev-parse origin/main)
-   RUN=$(gh run list --workflow=auto-release.yml --event workflow_dispatch --commit "$SHA" --limit 1 --json databaseId --jq 'first(.[].databaseId)')
-   test -n "$RUN"
-   # `set -e` stops the block when the run failed, so no tag is published from a failed release.
+
+   # Run ids only grow, and `gh run list` returns the newest first, so the last id above the baseline
+   # is the run this shell just started — even when `main` advanced or another dispatch landed in
+   # between. `--limit 1` would resolve at run time and could watch a different run.
+   BASELINE=$(gh run list --workflow=auto-release.yml --limit 20 --json databaseId --jq 'first(.[].databaseId) // 0')
+   gh workflow run auto-release.yml --ref main -f confirm_release=true
+   RUN=$(gh run list --workflow=auto-release.yml --limit 20 --json databaseId --jq "last(.[] | select(.databaseId > $BASELINE) | .databaseId) // empty")
+   : "${RUN:?no auto-release run appeared after the dispatch; wait for it and re-run this step}"
+   # `set -e` stops the block when the run failed, so nothing is published from a failed release.
    gh run watch --exit-status "$RUN"
+
    git fetch --tags origin
    # The released tag is the version at the commit that run tagged. The highest local tag is not it:
    # a lower version released after a higher one would dispatch publish for the wrong tag.
    TAGGED_SHA=$(gh run view "$RUN" --json headSha --jq .headSha)
    TAG="v$(git show "$TAGGED_SHA:package.json" | node -e 'process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(0,"utf8")).version))')"
    git rev-parse --verify --quiet "refs/tags/$TAG" > /dev/null
+
+   # Capture the publish run the same way, so the check below watches the dispatch above rather than
+   # whichever publish run happens to be newest when it runs.
+   PUBLISH_BASELINE=$(gh run list --workflow=publish.yml --limit 20 --json databaseId --jq 'first(.[].databaseId) // 0')
    gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"
+   PUBLISH_RUN=$(gh run list --workflow=publish.yml --limit 20 --json databaseId --jq "last(.[] | select(.databaseId > $PUBLISH_BASELINE) | .databaseId) // empty")
+   : "${PUBLISH_RUN:?no publish run appeared after the dispatch; wait for it and re-run this step}"
+   gh run watch --exit-status "$PUBLISH_RUN"
+   npm view pi-lingua version
    ```
 
    `gh workflow run` fails with a 422 while the ref does not exist, so the tag has to be there
-   before the dispatch, and the block above stops instead of dispatching when the release run did
+   before the publish dispatch, and the block stops instead of dispatching when the release run did
    not succeed. Read the tag out of the run that tagged it instead of the version in your local
    `package.json`: `auto-release.yml` tags whatever `main` pointed at, which can be a later version
    than your working tree.
@@ -115,28 +127,31 @@ npm version patch --no-git-tag-version
 git add package.json package-lock.json CHANGELOG.md
 git commit -m "chore: release x.y.z"
 git push
+# Run ids only grow and the list returns the newest first, so the id above the baseline is the run
+# this shell starts — `--limit 1` would resolve at run time and could watch a different dispatch.
+BASELINE=$(gh run list --workflow=auto-release.yml --limit 20 --json databaseId --jq 'first(.[].databaseId) // 0')
 gh workflow run auto-release.yml --ref main -f confirm_release=true
 
 # 4. wait for that run, then publish the tag it created. auto-release.yml stops at the tag and
 #    the GitHub Release; publish.yml is a separate dispatch. `set -e` stops this block when the
-#    release run fails, and the run is named by the commit it was dispatched for.
-SHA=$(git rev-parse origin/main)
-RUN=$(gh run list --workflow=auto-release.yml --event workflow_dispatch --commit "$SHA" --limit 1 --json databaseId --jq 'first(.[].databaseId)')
-test -n "$RUN"
+#    release run fails.
+RUN=$(gh run list --workflow=auto-release.yml --limit 20 --json databaseId --jq "last(.[] | select(.databaseId > $BASELINE) | .databaseId) // empty")
+: "${RUN:?no auto-release run appeared after the dispatch; wait for it and re-run this step}"
 gh run watch --exit-status "$RUN"
 git fetch --tags origin
 # the tag that run created, not the highest local tag
 TAGGED_SHA=$(gh run view "$RUN" --json headSha --jq .headSha)
 TAG="v$(git show "$TAGGED_SHA:package.json" | node -e 'process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(0,"utf8")).version))')"
 git rev-parse --verify --quiet "refs/tags/$TAG" > /dev/null
-gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"
 
-# 5. verify. Name the publish run explicitly, because a bare `gh run watch` can pick up the CI run
-#    from the same push, and it exits 0 on a failed run unless --exit-status is passed. publish.yml
-#    checked out the tag, so its headSha is the commit auto-release.yml tagged.
-RUN=$(gh run list --workflow=publish.yml --event workflow_dispatch --commit "$TAGGED_SHA" --limit 1 --json databaseId --jq 'first(.[].databaseId)')
-test -n "$RUN"
-gh run watch --exit-status "$RUN"
+# 5. verify. Capture the publish run the same way, so this watches the dispatch above rather than
+#    whichever publish run is newest when it runs, and it exits 0 on a failed run unless
+#    --exit-status is passed.
+PUBLISH_BASELINE=$(gh run list --workflow=publish.yml --limit 20 --json databaseId --jq 'first(.[].databaseId) // 0')
+gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"
+PUBLISH_RUN=$(gh run list --workflow=publish.yml --limit 20 --json databaseId --jq "last(.[] | select(.databaseId > $PUBLISH_BASELINE) | .databaseId) // empty")
+: "${PUBLISH_RUN:?no publish run appeared after the dispatch; wait for it and re-run this step}"
+gh run watch --exit-status "$PUBLISH_RUN"
 npm view pi-lingua version
 ```
 

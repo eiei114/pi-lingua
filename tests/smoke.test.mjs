@@ -150,35 +150,70 @@ function bashBlocks(markdown) {
 }
 
 function releaseDispatchProblems(block) {
-  const dispatchIndex = block.lines.findIndex((line) => /gh workflow run publish\.yml/.test(line));
-  if (dispatchIndex === -1) return [];
+  // Comments and blank lines are not commands: the prose above a lookup names it too.
+  const commands = block.lines.map((line) => line.trim()).filter((line) => line && !line.startsWith("#"));
+  const dispatchIndexes = commands
+    .map((line, index) => ({
+      line,
+      index,
+      workflow: line.match(/gh workflow run ([a-z-]+\.yml)/)?.[1],
+    }))
+    .filter((entry) => entry.workflow);
+  const publishDispatch = dispatchIndexes.find((entry) => entry.workflow === "publish.yml");
+  if (!publishDispatch) return [];
 
   const where = `docs/release.md:${block.line}`;
   const problems = [];
-  // Without a failure gate, a failed watch still leads to the fetch, the tag lookup and the
-  // dispatch, so publish.yml can start for a tag the release run never created.
-  const failureGate = block.lines.some((line) => {
-    const match = line.trim().match(/^set\s+-([A-Za-z]+)/);
+  // Without a failure gate, a failed watch still leads to the tag lookup and the dispatch, so
+  // publish.yml can start for a tag the release run never created.
+  const failureGate = commands.some((line) => {
+    const match = line.match(/^set\s+-([A-Za-z]+)/);
     return Boolean(match) && match[1].includes("e");
   });
   if (!failureGate) {
     problems.push(`${where}: the dispatch block must set -e so a failed step stops the chain`);
   }
-  if (!block.lines.slice(0, dispatchIndex).some((line) => /gh run watch --exit-status/.test(line))) {
+  if (!commands.slice(0, publishDispatch.index).some((line) => /gh run watch --exit-status/.test(line))) {
     problems.push(`${where}: the dispatch must come after the release run it watched`);
   }
-  for (const line of block.lines) {
-    // `--limit 1` alone resolves at run time: a second dispatch or a lagging list result makes the
-    // watch track a different run, so the run has to be named by the commit it was dispatched for.
-    if (/gh run list/.test(line) && !/--commit/.test(line)) {
-      problems.push(`${where}: gh run list must be pinned to the commit it means to watch: ${line.trim()}`);
+  if (!commands.slice(publishDispatch.index + 1).some((line) => /gh run watch --exit-status/.test(line))) {
+    problems.push(`${where}: the publish dispatch must be followed by a watch of its own run`);
+  }
+
+  for (const dispatch of dispatchIndexes) {
+    // The run id has to come from this shell's own dispatch. Capturing the newest id before the
+    // dispatch and selecting the ids above it is the only lookup that survives a second dispatch,
+    // a lagging list result or `main` moving on; `--limit 1` resolves at run time instead.
+    const previous = dispatchIndexes.filter((entry) => entry.index < dispatch.index).at(-1);
+    const windowStart = previous ? previous.index + 1 : 0;
+    const before = commands.slice(windowStart, dispatch.index);
+    const after = commands.slice(dispatch.index + 1);
+    const baseline = before.find(
+      (line) => /gh run list/.test(line) && /first\(\.\[\]\.databaseId\)\s*\/\/\s*0/.test(line),
+    );
+    const baselineVariable = baseline?.match(/^(\w+)=/)?.[1];
+    if (!baselineVariable) {
+      problems.push(`${where}: ${dispatch.workflow} needs a run-id baseline captured by the same shell before it`);
+      continue;
     }
-    // The highest local tag is not the released tag when a lower version lands after a higher one.
-    if (/--sort=-version:refname/.test(line)) {
-      problems.push(`${where}: the published tag must come from the watched run, not the highest local tag: ${line.trim()}`);
+    const selection = after.find((line) =>
+      new RegExp(`gh run list[^\n]*> \\$${baselineVariable}\\)`).test(line),
+    );
+    if (!selection) {
+      problems.push(`${where}: ${dispatch.workflow} must select the run id above $${baselineVariable} after the dispatch`);
+      continue;
+    }
+    const selected = selection.match(/^(\w+)=/)?.[1];
+    if (!selected || !after.some((line) => new RegExp(`: "\\$\\{${selected}:?`).test(line))) {
+      problems.push(`${where}: the run id selected after ${dispatch.workflow} must be asserted non-empty`);
     }
   }
-  if (!block.lines.some((line) => /gh run view[^`]*--json headSha/.test(line))) {
+
+  // The highest local tag is not the released tag when a lower version lands after a higher one.
+  if (commands.some((line) => /--sort=-version:refname/.test(line))) {
+    problems.push(`${where}: the published tag must come from the watched run, not the highest local tag`);
+  }
+  if (!commands.some((line) => /gh run view[^`]*--json headSha/.test(line))) {
     problems.push(`${where}: the published tag must be read from the watched run's headSha`);
   }
   return problems;
@@ -283,8 +318,8 @@ test("the documented publish dispatch waits for the run it names and publishes t
   const problems = dispatchBlocks.flatMap(releaseDispatchProblems);
   assert.deepEqual(problems, [], `docs/release.md publish dispatch can race the release it means: ${problems}`);
 
-  // Prove the guard bites on the shapes it exists for: the unfixed block (runtime-resolved run id,
-  // highest local tag, no failure gate) and each defect on its own.
+  // Prove the guard bites on the shapes it exists for: the pre-fix block (runtime-resolved run id,
+  // highest local tag, no failure gate, no watch of the publish run) and each defect on its own.
   const unfixed = [
     "RUN=$(gh run list --workflow=auto-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')",
     'gh run watch --exit-status "$RUN"',
@@ -293,7 +328,37 @@ test("the documented publish dispatch waits for the run it names and publishes t
     'gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"',
   ];
   const unfixedProblems = releaseDispatchProblems({ line: 1, lines: unfixed });
-  assert.equal(unfixedProblems.length, 4, `the pre-fix block must fail the guard: ${unfixedProblems}`);
+  assert.equal(unfixedProblems.length, 5, `the pre-fix block must fail the guard: ${unfixedProblems}`);
+  assert.ok(
+    unfixedProblems.some((problem) => problem.includes("baseline")),
+    `the pre-fix run lookup must be rejected: ${unfixedProblems}`,
+  );
+
+  const correct = [
+    "set -euo pipefail",
+    "BASELINE=$(gh run list --workflow=auto-release.yml --limit 20 --json databaseId --jq 'first(.[].databaseId) // 0')",
+    "gh workflow run auto-release.yml --ref main -f confirm_release=true",
+    'RUN=$(gh run list --workflow=auto-release.yml --limit 20 --json databaseId --jq "last(.[] | select(.databaseId > $BASELINE) | .databaseId) // empty")',
+    ': "${RUN:?no run}"',
+    'gh run watch --exit-status "$RUN"',
+    'TAGGED_SHA=$(gh run view "$RUN" --json headSha --jq .headSha)',
+    "TAG=$(git show \"$TAGGED_SHA:package.json\" | node -p 'JSON.parse(require(\"node:fs\").readFileSync(0,\"utf8\")).version')",
+    "PUBLISH_BASELINE=$(gh run list --workflow=publish.yml --limit 20 --json databaseId --jq 'first(.[].databaseId) // 0')",
+    'gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"',
+    'PUBLISH_RUN=$(gh run list --workflow=publish.yml --limit 20 --json databaseId --jq "last(.[] | select(.databaseId > $PUBLISH_BASELINE) | .databaseId) // empty")',
+    ': "${PUBLISH_RUN:?no run}"',
+    'gh run watch --exit-status "$PUBLISH_RUN"',
+  ];
+  assert.deepEqual(releaseDispatchProblems({ line: 1, lines: correct }), []);
+
+  // A dispatch whose capture is never asserted fails, because an empty id would be watched as "".
+  assert.deepEqual(
+    releaseDispatchProblems({ line: 1, lines: correct.filter((line) => !line.includes("${PUBLISH_RUN")) }),
+    ["docs/release.md:1: the run id selected after publish.yml must be asserted non-empty"],
+  );
+
+  // `--commit` pins a commit, not the run: `main` moving on between push and dispatch, or a second
+  // dispatch of the same commit, still leaves the newer/older run ambiguous.
   assert.deepEqual(
     releaseDispatchProblems({
       line: 1,
@@ -302,22 +367,14 @@ test("the documented publish dispatch waits for the run it names and publishes t
         'SHA=$(git rev-parse origin/main)',
         'RUN=$(gh run list --workflow=auto-release.yml --commit "$SHA" --limit 1 --json databaseId --jq \'first(.[].databaseId)\')',
         'gh run watch --exit-status "$RUN"',
-        'gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"',
-      ],
-    }),
-    ["docs/release.md:1: the published tag must be read from the watched run's headSha"],
-  );
-  assert.deepEqual(
-    releaseDispatchProblems({
-      line: 1,
-      lines: [
-        'set -euo pipefail',
-        'gh run watch --exit-status "$RUN"',
         'TAGGED_SHA=$(gh run view "$RUN" --json headSha --jq .headSha)',
         'gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"',
       ],
     }),
-    [],
+    [
+      "docs/release.md:1: the publish dispatch must be followed by a watch of its own run",
+      "docs/release.md:1: publish.yml needs a run-id baseline captured by the same shell before it",
+    ],
   );
 });
 
