@@ -12,7 +12,11 @@ This project follows semantic versioning.
   GitHub Release; `publish.yml` has to be dispatched for that tag separately, which is what
   `.github/workflows/auto-release.yml` has actually done since the manual-dispatch gate. The guide
   now says to wait for the release run and to take the publish ref from the tag it created, not
-  from the local `package.json`.
+  from the local `package.json`. The release step names the run by the commit it was dispatched for,
+  stops with `set -e` when the run fails, and reads its tag from that run, so a second dispatch,
+  a lagging list result or a lower version released after a higher one cannot redirect the publish
+  to the wrong tag. The smoke test now also reads these steps and the release prose with the same
+  strictness the guide needs: wrapped sentences and single-quoted `'main'` dispatches are caught.
 
 ## [0.6.4] - 2026-11-07
 

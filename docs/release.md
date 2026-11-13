@@ -29,15 +29,26 @@ push.
    created:
 
    ```bash
-   RUN=$(gh run list --workflow=auto-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+   set -euo pipefail
+   # Name the run by the commit it was dispatched for: `--limit 1` resolves at run time and would
+   # follow a different dispatch (or a lagging list result) instead of the release you just started.
+   SHA=$(git rev-parse origin/main)
+   RUN=$(gh run list --workflow=auto-release.yml --event workflow_dispatch --commit "$SHA" --limit 1 --json databaseId --jq 'first(.[].databaseId)')
+   test -n "$RUN"
+   # `set -e` stops the block when the run failed, so no tag is published from a failed release.
    gh run watch --exit-status "$RUN"
    git fetch --tags origin
-   TAG=$(git tag --list 'v[0-9]*' --sort=-version:refname | head -1)
+   # The released tag is the version at the commit that run tagged. The highest local tag is not it:
+   # a lower version released after a higher one would dispatch publish for the wrong tag.
+   TAGGED_SHA=$(gh run view "$RUN" --json headSha --jq .headSha)
+   TAG="v$(git show "$TAGGED_SHA:package.json" | node -e 'process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(0,"utf8")).version))')"
+   git rev-parse --verify --quiet "refs/tags/$TAG" > /dev/null
    gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"
    ```
 
    `gh workflow run` fails with a 422 while the ref does not exist, so the tag has to be there
-   before the dispatch. Read the tag out of the repository instead of the version in your local
+   before the dispatch, and the block above stops instead of dispatching when the release run did
+   not succeed. Read the tag out of the run that tagged it instead of the version in your local
    `package.json`: `auto-release.yml` tags whatever `main` pointed at, which can be a later version
    than your working tree.
 
@@ -80,6 +91,8 @@ Run all of this from the repository root. `npm login` writes to your **user** `~
 repository, so `npm run publish:guard` still passes and no workflow secret is involved.
 
 ```bash
+set -euo pipefail
+
 # 0. once per machine: npm 11.15+ for `npm trust`, and 2FA enabled on the npm account
 npm install -g npm@^11.15.0
 npm --version
@@ -105,16 +118,24 @@ git push
 gh workflow run auto-release.yml --ref main -f confirm_release=true
 
 # 4. wait for that run, then publish the tag it created. auto-release.yml stops at the tag and
-#    the GitHub Release; publish.yml is a separate dispatch.
-RUN=$(gh run list --workflow=auto-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+#    the GitHub Release; publish.yml is a separate dispatch. `set -e` stops this block when the
+#    release run fails, and the run is named by the commit it was dispatched for.
+SHA=$(git rev-parse origin/main)
+RUN=$(gh run list --workflow=auto-release.yml --event workflow_dispatch --commit "$SHA" --limit 1 --json databaseId --jq 'first(.[].databaseId)')
+test -n "$RUN"
 gh run watch --exit-status "$RUN"
 git fetch --tags origin
-TAG=$(git tag --list 'v[0-9]*' --sort=-version:refname | head -1)
+# the tag that run created, not the highest local tag
+TAGGED_SHA=$(gh run view "$RUN" --json headSha --jq .headSha)
+TAG="v$(git show "$TAGGED_SHA:package.json" | node -e 'process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(0,"utf8")).version))')"
+git rev-parse --verify --quiet "refs/tags/$TAG" > /dev/null
 gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"
 
 # 5. verify. Name the publish run explicitly, because a bare `gh run watch` can pick up the CI run
-#    from the same push, and it exits 0 on a failed run unless --exit-status is passed.
-RUN=$(gh run list --workflow=publish.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+#    from the same push, and it exits 0 on a failed run unless --exit-status is passed. publish.yml
+#    checked out the tag, so its headSha is the commit auto-release.yml tagged.
+RUN=$(gh run list --workflow=publish.yml --event workflow_dispatch --commit "$TAGGED_SHA" --limit 1 --json databaseId --jq 'first(.[].databaseId)')
+test -n "$RUN"
 gh run watch --exit-status "$RUN"
 npm view pi-lingua version
 ```
