@@ -204,8 +204,10 @@ function releaseDispatchProblems(block) {
       continue;
     }
     const selected = selection.match(/^(\w+)=/)?.[1];
-    if (!selected || !after.some((line) => new RegExp(`: "\\$\\{${selected}:?`).test(line))) {
-      problems.push(`${where}: the run id selected after ${dispatch.workflow} must be asserted non-empty`);
+    // The guard has to be `: "${VAR:?message}"`: a plain `: "${VAR}"` succeeds on an empty id and
+    // the next command would watch an empty run id, so `:?` specifically is required here.
+    if (!selected || !after.some((line) => new RegExp(`: "\\$\\{${selected}:\\?`).test(line))) {
+      problems.push(`${where}: the run id selected after ${dispatch.workflow} must be asserted with :? so an empty id stops the block`);
     }
   }
 
@@ -354,7 +356,31 @@ test("the documented publish dispatch waits for the run it names and publishes t
   // A dispatch whose capture is never asserted fails, because an empty id would be watched as "".
   assert.deepEqual(
     releaseDispatchProblems({ line: 1, lines: correct.filter((line) => !line.includes("${PUBLISH_RUN")) }),
-    ["docs/release.md:1: the run id selected after publish.yml must be asserted non-empty"],
+    [
+      "docs/release.md:1: the run id selected after publish.yml must be asserted with :? so an empty id stops the block",
+    ],
+  );
+
+  // A plain expansion must not satisfy the guard: `: "${PUBLISH_RUN}"` succeeds on an empty id.
+  assert.deepEqual(
+    releaseDispatchProblems({
+      line: 1,
+      lines: correct.map((line) =>
+        line === ': "${PUBLISH_RUN:?no run}"' ? ': "${PUBLISH_RUN}"' : line,
+      ),
+    }),
+    [
+      "docs/release.md:1: the run id selected after publish.yml must be asserted with :? so an empty id stops the block",
+    ],
+  );
+  assert.deepEqual(
+    releaseDispatchProblems({
+      line: 1,
+      lines: correct.map((line) => (line === ': "${RUN:?no run}"' ? ': "${RUN}"' : line)),
+    }),
+    [
+      "docs/release.md:1: the run id selected after auto-release.yml must be asserted with :? so an empty id stops the block",
+    ],
   );
 
   // `--commit` pins a commit, not the run: `main` moving on between push and dispatch, or a second
