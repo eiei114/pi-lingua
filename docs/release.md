@@ -31,12 +31,15 @@ push.
    ```bash
    set -euo pipefail
 
-   # Run ids only grow, and `gh run list` returns the newest first, so the last id above the baseline
-   # is the run this shell just started — even when `main` advanced or another dispatch landed in
-   # between. `--limit 1` would resolve at run time and could watch a different run.
+   # Run ids only grow, and `gh run list` returns the newest first, so the first id above the baseline
+   # is the run this shell just started — as long as no other dispatch starts after this one. Two
+   # dispatches are not distinguishable from their ids alone, so a dispatch that lands later wins
+   # this lookup; that is why the block below reads the tag out of the watched run instead of
+   # trusting the id, and why re-running this step is the safe answer when in doubt. `--limit 1`
+   # would resolve at run time and could watch a different run.
    BASELINE=$(gh run list --workflow=auto-release.yml --limit 20 --json databaseId --jq 'first(.[].databaseId) // 0')
    gh workflow run auto-release.yml --ref main -f confirm_release=true
-   RUN=$(gh run list --workflow=auto-release.yml --limit 20 --json databaseId --jq "last(.[] | select(.databaseId > $BASELINE) | .databaseId) // empty")
+   RUN=$(gh run list --workflow=auto-release.yml --limit 20 --json databaseId --jq "first(.[] | select(.databaseId > $BASELINE) | .databaseId) // empty")
    : "${RUN:?no auto-release run appeared after the dispatch; wait for it and re-run this step}"
    # `set -e` stops the block when the run failed, so nothing is published from a failed release.
    gh run watch --exit-status "$RUN"
@@ -48,15 +51,31 @@ push.
    TAG="v$(git show "$TAGGED_SHA:package.json" | node -e 'process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(0,"utf8")).version))')"
    git rev-parse --verify --quiet "refs/tags/$TAG" > /dev/null
 
-   # Capture the publish run the same way, so the check below watches the dispatch above rather than
-   # whichever publish run happens to be newest when it runs.
+   # Capture the publish run the same way, so the check below watches a publish run started after the
+   # baseline rather than whichever one happens to be newest when it runs. The newest-above-baseline
+   # caveat from the release lookup applies here too.
    PUBLISH_BASELINE=$(gh run list --workflow=publish.yml --limit 20 --json databaseId --jq 'first(.[].databaseId) // 0')
    gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"
-   PUBLISH_RUN=$(gh run list --workflow=publish.yml --limit 20 --json databaseId --jq "last(.[] | select(.databaseId > $PUBLISH_BASELINE) | .databaseId) // empty")
+   PUBLISH_RUN=$(gh run list --workflow=publish.yml --limit 20 --json databaseId --jq "first(.[] | select(.databaseId > $PUBLISH_BASELINE) | .databaseId) // empty")
    : "${PUBLISH_RUN:?no publish run appeared after the dispatch; wait for it and re-run this step}"
    gh run watch --exit-status "$PUBLISH_RUN"
    npm view pi-lingua version
    ```
+
+   The run-id lookup is honest about what it can and cannot resolve. `gh run list` returns the
+   newest run first, so `first(...)` selects the newest id above the baseline:
+
+   - a run that existed before the baseline is never selected, and neither is a run whose id is
+     not above it — a lagging list result just yields an empty selection, and the `:?` assertion
+     stops the block;
+   - a dispatch that starts **after** this shell's dispatch outranks it, and the two ids alone
+     cannot tell which shell started which. That case is a residual race, not something this block
+     covers: the block still only publishes the tag of the run it actually watched, and re-running
+     this step once no concurrent dispatch is in flight is the safe recovery.
+
+   Selecting the *oldest* id above the baseline (`last(...)`) is worse than either case: it returns
+   a run from an earlier dispatch even when this shell's own run is the newest one, while claiming
+   to watch the run it just started.
 
    `gh workflow run` fails with a 422 while the ref does not exist, so the tag has to be there
    before the publish dispatch, and the block stops instead of dispatching when the release run did
@@ -127,15 +146,16 @@ npm version patch --no-git-tag-version
 git add package.json package-lock.json CHANGELOG.md
 git commit -m "chore: release x.y.z"
 git push
-# Run ids only grow and the list returns the newest first, so the id above the baseline is the run
-# this shell starts — `--limit 1` would resolve at run time and could watch a different dispatch.
+# Run ids only grow and the list returns the newest first, so the first id above the baseline is
+# the run this shell starts — unless another dispatch starts after it, which ids alone cannot tell
+# apart. `--limit 1` would resolve at run time and could watch a different dispatch.
 BASELINE=$(gh run list --workflow=auto-release.yml --limit 20 --json databaseId --jq 'first(.[].databaseId) // 0')
 gh workflow run auto-release.yml --ref main -f confirm_release=true
 
 # 4. wait for that run, then publish the tag it created. auto-release.yml stops at the tag and
 #    the GitHub Release; publish.yml is a separate dispatch. `set -e` stops this block when the
 #    release run fails.
-RUN=$(gh run list --workflow=auto-release.yml --limit 20 --json databaseId --jq "last(.[] | select(.databaseId > $BASELINE) | .databaseId) // empty")
+RUN=$(gh run list --workflow=auto-release.yml --limit 20 --json databaseId --jq "first(.[] | select(.databaseId > $BASELINE) | .databaseId) // empty")
 : "${RUN:?no auto-release run appeared after the dispatch; wait for it and re-run this step}"
 gh run watch --exit-status "$RUN"
 git fetch --tags origin
@@ -144,12 +164,12 @@ TAGGED_SHA=$(gh run view "$RUN" --json headSha --jq .headSha)
 TAG="v$(git show "$TAGGED_SHA:package.json" | node -e 'process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(0,"utf8")).version))')"
 git rev-parse --verify --quiet "refs/tags/$TAG" > /dev/null
 
-# 5. verify. Capture the publish run the same way, so this watches the dispatch above rather than
-#    whichever publish run is newest when it runs, and it exits 0 on a failed run unless
-#    --exit-status is passed.
+# 5. verify. Capture the publish run the same way, so this watches a publish run started after the
+#    baseline rather than whichever run is newest when it runs; the same concurrent-dispatch caveat
+#    applies, and it exits 0 on a failed run unless --exit-status is passed.
 PUBLISH_BASELINE=$(gh run list --workflow=publish.yml --limit 20 --json databaseId --jq 'first(.[].databaseId) // 0')
 gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"
-PUBLISH_RUN=$(gh run list --workflow=publish.yml --limit 20 --json databaseId --jq "last(.[] | select(.databaseId > $PUBLISH_BASELINE) | .databaseId) // empty")
+PUBLISH_RUN=$(gh run list --workflow=publish.yml --limit 20 --json databaseId --jq "first(.[] | select(.databaseId > $PUBLISH_BASELINE) | .databaseId) // empty")
 : "${PUBLISH_RUN:?no publish run appeared after the dispatch; wait for it and re-run this step}"
 gh run watch --exit-status "$PUBLISH_RUN"
 npm view pi-lingua version

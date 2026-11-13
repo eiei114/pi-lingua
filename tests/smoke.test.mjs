@@ -101,6 +101,25 @@ function affirmativeDispatchClaims(label, content) {
     paragraph = [];
   };
 
+  // A list, heading or quote marker is not part of a sentence, and a wrapped list item or quote is
+  // still one paragraph: stripping the marker before joining keeps "- `auto-release.yml` / dispatches
+  // `publish.yml`" from being read as two line-scoped fragments. Without this, a marker line flushed
+  // on its own and the continuation was never checked.
+  const stripBlockMarkers = (line) => {
+    let rest = line.trim();
+    let previous;
+    do {
+      previous = rest;
+      rest = rest
+        .replace(/^>\s?/, "")
+        .replace(/^(?:[-*+]|\d+\.)\s+/, "")
+        .replace(/^#{1,6}\s+/, "")
+        .trim();
+    } while (rest !== previous);
+    return rest;
+  };
+  const startsBlock = (line) => /^(?:>\s*)?(?:[-*+]|\d+\.)\s+/.test(line.trim()) || /^#{1,6}\s+/.test(line.trim());
+
   // Prose only: a fenced shell block runs the dispatches by hand, and joining its lines would read
   // the separate `-f ref` commands as one claim.
   let fenced = false;
@@ -112,15 +131,21 @@ function affirmativeDispatchClaims(label, content) {
       continue;
     }
     if (fenced) continue;
-    if (!trimmed) {
+    // A new list item or heading starts its own paragraph, so the wrapped continuation that follows
+    // it belongs to that item and not to the block before it.
+    if (startsBlock(trimmed)) flush();
+    const text = stripBlockMarkers(trimmed);
+    // A bare `>` or a marker with no content is a paragraph break, not a sentence to join.
+    if (!text) {
       flush();
       continue;
     }
-    // A line that closes its own sentence ends the paragraph, so the next line never borrows this
-    // one as its subject. A trailing file extension keeps it open.
-    paragraph.push({ line: index + 1, text: trimmed });
-    if (/^(?:[-*+|>#]|\d+\.)/.test(trimmed)) flush();
-    if (/[.!?]\s*$/.test(trimmed) && !/\.(?:yml|md|mjs|json|ts|js)`?$/i.test(trimmed)) flush();
+    paragraph.push({ line: index + 1, text });
+    // A heading runs only to the end of its own line, and a line that closes its own sentence ends
+    // the paragraph so the next line never borrows this one as its subject. A trailing file
+    // extension keeps the paragraph open.
+    if (/^#{1,6}\s+/.test(trimmed)) flush();
+    if (/[.!?]\s*$/.test(text) && !/\.(?:yml|md|mjs|json|ts|js)`?$/i.test(text)) flush();
   }
   flush();
   return claims;
@@ -182,8 +207,9 @@ function releaseDispatchProblems(block) {
 
   for (const dispatch of dispatchIndexes) {
     // The run id has to come from this shell's own dispatch. Capturing the newest id before the
-    // dispatch and selecting the ids above it is the only lookup that survives a second dispatch,
-    // a lagging list result or `main` moving on; `--limit 1` resolves at run time instead.
+    // dispatch and selecting the newest id above it survives a lagging list result; `--limit 1`
+    // resolves at run time instead, and a concurrent dispatch remains a residual race that the
+    // guide states honestly rather than claiming to cover.
     const previous = dispatchIndexes.filter((entry) => entry.index < dispatch.index).at(-1);
     const windowStart = previous ? previous.index + 1 : 0;
     const before = commands.slice(windowStart, dispatch.index);
@@ -202,6 +228,14 @@ function releaseDispatchProblems(block) {
     if (!selection) {
       problems.push(`${where}: ${dispatch.workflow} must select the run id above $${baselineVariable} after the dispatch`);
       continue;
+    }
+    // Direction matters: `gh run list` returns newest first, so only `first(...)` / `.[0]` picks the
+    // run that appeared after the baseline. `last(...)` silently picks the OLDEST id above it — an
+    // earlier dispatch — so the block would watch that run while claiming to watch its own. A
+    // selection with no explicit direction is equally unpinned.
+    const selectsNewest = /first\(|\.[[]0]/.test(selection) && !/last\(/.test(selection);
+    if (!selectsNewest) {
+      problems.push(`${where}: the run id selected after ${dispatch.workflow} must be the newest id above $${baselineVariable} (first(...) or .[0]), not the oldest`);
     }
     const selected = selection.match(/^(\w+)=/)?.[1];
     // The guard has to be `: "${VAR:?message}"`: a plain `: "${VAR}"` succeeds on an empty id and
@@ -290,6 +324,30 @@ test("release docs and auto-release.yml agree that publishing is a separate disp
     affirmativeDispatchClaims("fixture", "`auto-release.yml` does not start\n`publish.yml`."),
     [],
   );
+  // A list item, an ordered item and a quote paragraph are wrapped the same way, and a block marker
+  // used to flush the paragraph before the continuation was joined — the live hole at the previous
+  // HEAD. Strip the marker, keep the paragraph open, and every shape is caught.
+  for (const fixture of [
+    "- `auto-release.yml` dispatches\n  `publish.yml` automatically.",
+    "1. `auto-release.yml` dispatches\n   `publish.yml` automatically.",
+    "> `auto-release.yml` dispatches\n> `publish.yml` automatically.",
+  ]) {
+    assert.deepEqual(
+      affirmativeDispatchClaims("fixture", fixture),
+      ["fixture:1: `auto-release.yml` dispatches `publish.yml` automatically."],
+      `wrapped list/quote claim must be detected: ${JSON.stringify(fixture)}`,
+    );
+  }
+  // The marker stripping must not turn separate items into one sentence, and must not swallow the
+  // negation that keeps the accurate wording allowed.
+  assert.deepEqual(
+    affirmativeDispatchClaims("fixture", "- `auto-release.yml` creates the tag.\n- `publish.yml` publishes."),
+    [],
+  );
+  assert.deepEqual(
+    affirmativeDispatchClaims("fixture", "- `auto-release.yml` does not start\n  `publish.yml`."),
+    [],
+  );
 
   // The documented two-step flow must still dispatch publish.yml by hand, pinned to the tag that
   // auto-release.yml created — never to main, and never to two different refs in one command.
@@ -340,18 +398,49 @@ test("the documented publish dispatch waits for the run it names and publishes t
     "set -euo pipefail",
     "BASELINE=$(gh run list --workflow=auto-release.yml --limit 20 --json databaseId --jq 'first(.[].databaseId) // 0')",
     "gh workflow run auto-release.yml --ref main -f confirm_release=true",
-    'RUN=$(gh run list --workflow=auto-release.yml --limit 20 --json databaseId --jq "last(.[] | select(.databaseId > $BASELINE) | .databaseId) // empty")',
+    'RUN=$(gh run list --workflow=auto-release.yml --limit 20 --json databaseId --jq "first(.[] | select(.databaseId > $BASELINE) | .databaseId) // empty")',
     ': "${RUN:?no run}"',
     'gh run watch --exit-status "$RUN"',
     'TAGGED_SHA=$(gh run view "$RUN" --json headSha --jq .headSha)',
     "TAG=$(git show \"$TAGGED_SHA:package.json\" | node -p 'JSON.parse(require(\"node:fs\").readFileSync(0,\"utf8\")).version')",
     "PUBLISH_BASELINE=$(gh run list --workflow=publish.yml --limit 20 --json databaseId --jq 'first(.[].databaseId) // 0')",
     'gh workflow run publish.yml --ref "$TAG" -f ref="$TAG"',
-    'PUBLISH_RUN=$(gh run list --workflow=publish.yml --limit 20 --json databaseId --jq "last(.[] | select(.databaseId > $PUBLISH_BASELINE) | .databaseId) // empty")',
+    'PUBLISH_RUN=$(gh run list --workflow=publish.yml --limit 20 --json databaseId --jq "first(.[] | select(.databaseId > $PUBLISH_BASELINE) | .databaseId) // empty")',
     ': "${PUBLISH_RUN:?no run}"',
     'gh run watch --exit-status "$PUBLISH_RUN"',
   ];
   assert.deepEqual(releaseDispatchProblems({ line: 1, lines: correct }), []);
+
+  // The direction is pinned, not just the presence of a baseline: `last(...)` is the oldest id above
+  // the baseline, so the block would watch an earlier run while claiming to watch the one it started.
+  // Both dispatch pairs are rejected, because both had the inverted selector.
+  const inverted = correct.map((line) => line.replace("first(.[] | select(", "last(.[] | select("));
+  assert.ok(
+    inverted.filter((line) => line.includes('last(.[]')).length === 2,
+    `the rejection fixture must replace both selectors: ${inverted}`,
+  );
+  assert.deepEqual(releaseDispatchProblems({ line: 1, lines: inverted }), [
+    "docs/release.md:1: the run id selected after auto-release.yml must be the newest id above $BASELINE (first(...) or .[0]), not the oldest",
+    "docs/release.md:1: the run id selected after publish.yml must be the newest id above $PUBLISH_BASELINE (first(...) or .[0]), not the oldest",
+  ]);
+
+  // The selection runs over a multi-id list whenever a second dispatch exists. The order `gh run
+  // list` returns is newest-first (observed on this repository: `--limit 20` over auto-release runs
+  // yields 42402923789 2026-11-07T18:46:15Z down to 35563903193 2026-09-21T05:15:04Z), so simulate
+  // the documented filter over such a list instead of trusting the expression's shape.
+  const selectRun = (ids, baseline, direction) => {
+    const above = ids.filter((id) => id > baseline);
+    return above.length === 0 ? null : direction === "newest" ? above[0] : above.at(-1);
+  };
+  const newestFirst = [302, 301, 100];
+  assert.equal(selectRun(newestFirst, 100, "newest"), 302);
+  assert.equal(selectRun(newestFirst, 100, "oldest"), 301);
+  assert.ok(selectRun(newestFirst, 100, "newest") > selectRun(newestFirst, 100, "oldest"));
+  // A single-run list is direction-blind: both selectors agree, which is how the inversion stayed
+  // invisible in the one-run case.
+  assert.equal(selectRun([301, 100], 100, "newest"), selectRun([301, 100], 100, "oldest"));
+  // No id above the baseline means no run yet; both directions have to say so instead of watching "".
+  assert.equal(selectRun([100], 100, "newest"), null);
 
   // A dispatch whose capture is never asserted fails, because an empty id would be watched as "".
   assert.deepEqual(

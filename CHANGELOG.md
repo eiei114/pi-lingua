@@ -13,11 +13,14 @@ This project follows semantic versioning.
   `.github/workflows/auto-release.yml` has actually done since the manual-dispatch gate. The guide
   now says to wait for the release run and to take the publish ref from the tag it created, not
   from the local `package.json`. The release step captures the run-id baseline immediately before
-  each dispatch and selects the run that appeared above it, so a second dispatch, a lagging list
-  result or `main` moving on cannot redirect the watch or the publish; `set -e` and a non-empty
-  assertion stop the block instead of publishing from a failed release. The smoke test now reads
-  those steps and the release prose with the same strictness the guide needs: wrapped sentences,
-  single-quoted `'main'` dispatches and runtime-resolved `--limit 1` lookups are caught.
+  each dispatch and selects the **newest** run above it, so a run from an earlier dispatch or a
+  lagging list result cannot redirect the watch or the publish; `set -e` and a non-empty assertion
+  stop the block instead of publishing from a failed release. A second dispatch that starts after
+  this shell's own dispatch outranks it and cannot be told apart from it by id, tag or `headSha`, so
+  the guide states that residual race instead of claiming to cover it. The smoke test now reads
+  those steps and the release prose with the same strictness the guide needs: wrapped sentences
+  (including ones inside a list item or a quote), single-quoted `'main'` dispatches,
+  runtime-resolved `--limit 1` lookups and an inverted oldest-first run selection are caught.
 
 ## [0.6.4] - 2026-11-07
 
