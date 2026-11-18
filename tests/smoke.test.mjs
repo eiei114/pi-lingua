@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, realpath, stat } from "node:fs/promises";
+import { isAbsolute, relative, sep } from "node:path";
 import test from "node:test";
 
 const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
@@ -538,11 +539,19 @@ test("ROADMAP status table stays in sync with the repo", async () => {
   assert.ok(versionMatch, "ROADMAP.md must have a status table Version row");
   assert.equal(versionMatch[1], packageJson.version, "ROADMAP version must match package.json");
 
-  const adrLinks = [...roadmap.matchAll(/\]\(([^)]*adr\/[^)]*)\)/g)].map((match) => match[1]);
+  const adrLinks = [...roadmap.matchAll(/\[([^\]]+)\]\((<[^>]+>|[^)]*)\)/g)]
+    .filter(([, label, destination]) =>
+      /\bADR(?:-\d+)?\b/i.test(label) || /(?:^|\/)adr(?:\/|$)/i.test(destination),
+    )
+    .map((match) => match[2]);
   assert.ok(adrLinks.length > 0, "ROADMAP.md must contain ADR links");
   const adrRoot = new URL("../docs/adr/", import.meta.url);
+  const realAdrRoot = await realpath(adrRoot);
   for (const link of adrLinks) {
-    const target = link.split(/[?#]/, 1)[0];
+    const markdownTarget = link.startsWith("<") && link.endsWith(">")
+      ? link.slice(1, -1)
+      : link;
+    const target = markdownTarget.split(/[?#]/, 1)[0];
     assert.ok(
       target.startsWith("docs/adr/"),
       `ROADMAP ADR link must resolve under docs/adr/: ${link}`,
@@ -556,5 +565,18 @@ test("ROADMAP status table stays in sync with the repo", async () => {
       access(targetUrl),
       `ROADMAP ADR link must resolve to an existing file: ${link}`,
     );
+    const [realTarget, targetStat] = await Promise.all([
+      realpath(targetUrl),
+      stat(targetUrl),
+    ]);
+    const relativeTarget = relative(realAdrRoot, realTarget);
+    assert.ok(
+      relativeTarget !== "" &&
+        relativeTarget !== ".." &&
+        !relativeTarget.startsWith(`..${sep}`) &&
+        !isAbsolute(relativeTarget),
+      `ROADMAP ADR link must resolve inside docs/adr/: ${link}`,
+    );
+    assert.ok(targetStat.isFile(), `ROADMAP ADR link must resolve to a file: ${link}`);
   }
 });
