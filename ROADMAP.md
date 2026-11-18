@@ -3,7 +3,7 @@
 > Living roadmap for `pi-lingua`. Update it whenever a release ships, a major item is resolved, or
 > the seed backlog is exhausted.
 
-Status snapshot date: **2026-09-21**.
+Status snapshot date: **2026-11-19**.
 
 ---
 
@@ -11,9 +11,9 @@ Status snapshot date: **2026-09-21**.
 
 | Aspect | State |
 |---|---|
-| Version | `0.1.0` |
-| Published to npm | not yet — first Trusted Publisher setup pending |
-| Stage | v1 implementation complete, awaiting first publish |
+| Version | `0.6.5` |
+| Published to npm | published via npm Trusted Publishing (`auto-release.yml` → `publish.yml`, both manual `workflow_dispatch`) |
+| Stage | v1 implementation complete; `0.6.5` published to npm |
 | Language pairs | target / native configured by settings; English and Japanese are the defaults |
 | Sinks | `markdown-log` (auto), `anki` (manual) |
 
@@ -22,9 +22,9 @@ Status snapshot date: **2026-09-21**.
 1. **A Prompt Review never blocks or rewrites a Task Run.** The `input` handler returns `continue`
    unconditionally and the reviewer call is never awaited. `tests/extension.test.mjs` asserts the
    handler returns while the reviewer promise is still unresolved — that test is the guard.
-   See [ADR-0001](adr/0001-review-never-blocks-the-task-run.md).
+   See [ADR-0001](docs/adr/0001-review-never-blocks-the-task-run.md).
 2. **The reviewer runs in-process.** No child `pi` process. See
-   [ADR-0002](adr/0002-in-process-reviewer-call.md).
+   [ADR-0002](docs/adr/0002-in-process-reviewer-call.md).
 3. **Anki never receives a card the user did not ask for.** The `anki` sink stays `manual`.
 4. **A skipped prompt is explainable.** `/lingua:status` reports the reason for the most recent skip.
 
@@ -32,7 +32,6 @@ Status snapshot date: **2026-09-21**.
 
 | Candidate | Why | Notes |
 |---|---|---|
-| First npm publish | The package is not installable until Trusted Publishing is configured | See [release.md](release.md) |
 | Reviewer model routing guidance | A slow or reasoning-heavy Reviewer Model is the only way latency can regress | Document measured latency per provider |
 | `pi-widget-host` interop | The prompt-top slot is shared when `pi-widget-host` is installed; this widget would compete for it | Register as a core-enabled provider, or fall back to `placement: "belowEditor"` |
 | Assistant-output review | Users will ask to review replies, not just prompts | Out of scope in v1; needs its own latency story |
