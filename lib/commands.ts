@@ -40,7 +40,7 @@ export const LINGUA_COMMANDS = [
   { name: "lingua:off", description: "Stop reviewing prompts, clear the widget, and save it for new sessions" },
   { name: "lingua:on", description: "Resume reviewing prompts and save it for new sessions" },
   { name: "lingua:status", description: "Show review counts, sinks, and the Reviewer Model in use" },
-  { name: "lingua:configure", description: "Show the settings block to paste into .pi/settings.json" },
+  { name: "lingua:configure", description: "Show the settings block to paste into the agent settings file" },
   { name: "lingua:model", description: "Choose the Reviewer Model (Pi model selector)" },
   { name: "lingua:effort", description: "Choose reviewer thinking effort (Pi thinking selector)" },
 ] as const;
@@ -168,7 +168,7 @@ export function registerLinguaCommands(pi: ExtensionAPI, deps: LinguaCommandDeps
       const results = await deps.runManualSinks(review, ctx);
       if (results.length === 0) {
         ctx.ui.notify(
-          "The Anki sink is disabled. Set pi-lingua.sinks.anki.enabled to true in .pi/settings.json.",
+          `The Anki sink is disabled. Set pi-lingua.sinks.anki.enabled to true in ${displaySettingsPath("global", ctx.cwd)}.`,
           "warning",
         );
         return;
