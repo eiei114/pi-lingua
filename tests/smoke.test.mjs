@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -12,6 +12,7 @@ const autoReleaseWorkflow = await readFile(
   "utf8",
 );
 const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
+const roadmap = await readFile(new URL("../ROADMAP.md", import.meta.url), "utf8");
 
 function workflowTriggers(content) {
   const lines = content.split(/\r?\n/);
@@ -230,8 +231,8 @@ function releaseDispatchProblems(block) {
       continue;
     }
     // Direction matters: `gh run list` returns newest first, so only `first(...)` / `.[0]` picks the
-    // run that appeared after the baseline. `last(...)` silently picks the OLDEST id above it — an
-    // earlier dispatch — so the block would watch that run while claiming to watch its own. A
+    // run that appeared after the baseline. `last(...)` silently picks the OLDEST id above it 窶・an
+    // earlier dispatch 窶・so the block would watch that run while claiming to watch its own. A
     // selection with no explicit direction is equally unpinned.
     const selectsNewest = /first\(|\.[[]0]/.test(selection) && !/last\(/.test(selection);
     if (!selectsNewest) {
@@ -325,7 +326,7 @@ test("release docs and auto-release.yml agree that publishing is a separate disp
     [],
   );
   // A list item, an ordered item and a quote paragraph are wrapped the same way, and a block marker
-  // used to flush the paragraph before the continuation was joined — the live hole at the previous
+  // used to flush the paragraph before the continuation was joined 窶・the live hole at the previous
   // HEAD. Strip the marker, keep the paragraph open, and every shape is caught.
   for (const fixture of [
     "- `auto-release.yml` dispatches\n  `publish.yml` automatically.",
@@ -350,7 +351,7 @@ test("release docs and auto-release.yml agree that publishing is a separate disp
   );
 
   // The documented two-step flow must still dispatch publish.yml by hand, pinned to the tag that
-  // auto-release.yml created — never to main, and never to two different refs in one command.
+  // auto-release.yml created 窶・never to main, and never to two different refs in one command.
   const commands = publishDispatchCommands(releaseDoc);
   assert.notEqual(commands.length, 0, "docs/release.md must document the publish.yml dispatch");
   for (const command of commands) {
@@ -530,4 +531,19 @@ test("the README documents the invariants a user must be able to rely on", () =>
   assert.match(readme, /## Settings/);
   assert.match(readme, /## Security/);
   assert.match(readme, /never blocks/i);
+});
+
+test("ROADMAP status table stays in sync with the repo", () => {
+  const versionMatch = roadmap.match(/^\|\s*Version\s*\|\s*`([^`]+)`\s*\|/m);
+  assert.ok(versionMatch, "ROADMAP.md must have a status table Version row");
+  assert.equal(versionMatch[1], packageJson.version, "ROADMAP version must match package.json");
+
+  const adrLinks = [...roadmap.matchAll(/\]\(([^)]*adr\/[^)]*)\)/g)].map((match) => match[1]);
+  assert.ok(adrLinks.length > 0, "ROADMAP.md must contain ADR links");
+  for (const link of adrLinks) {
+    assert.ok(
+      link.startsWith("docs/adr/"),
+      `ROADMAP ADR link must resolve under docs/adr/: ${link}`,
+    );
+  }
 });
