@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { displaySettingsPath } from "../lib/settings.ts";
 
 // Reviews write settings files; keep the machine's real agent settings untouched.
 process.env.PI_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "pi-lingua-ext-agent-"));
@@ -186,6 +187,7 @@ test("the extension registers the input hook, the entry renderer, and eight name
     assert.match(command.name, /^lingua:[a-z-]+$/, "commands use the flat colon form");
     assert.equal(typeof command.description, "string");
     assert.ok(command.description.length > 0, `${command.name} needs a description`);
+    assert.doesNotMatch(command.description, /\.pi\/settings\.json/);
   }
 });
 
@@ -387,6 +389,9 @@ test("lingua:card reports that the Anki sink is disabled instead of failing sile
   const notification = ctx.state.notifications.at(-1);
   assert.equal(notification.type, "warning");
   assert.match(notification.message, /Anki sink is disabled/);
+  assert.match(notification.message, /Set pi-lingua\.sinks\.anki\.enabled to true in /);
+  assert.ok(notification.message.includes(displaySettingsPath("global", cwd)));
+  assert.doesNotMatch(notification.message, /\.pi\/settings\.json/);
 });
 
 test("lingua:status reports the reviewer model and sink state", async () => {
