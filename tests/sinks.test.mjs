@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -109,6 +109,27 @@ test("the markdown-log sink creates the directory and writes a header once", asy
   assert.equal(content.match(/target_language:/g).length, 1, "frontmatter must be written once");
   assert.equal(content.match(/^## /gm).length, 2);
   assert.match(content, /second/);
+});
+
+test("concurrent first writes to an absent daily log preserve both reviews and one header", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-lingua-concurrent-log-"));
+  const config = tempConfig(dir);
+  const firstReview = review({ prompt: "first concurrent review" });
+  const secondReview = review({ prompt: "second concurrent review" });
+  const path = reviewLogPath(config, firstReview);
+  assert.equal(existsSync(path), false, "the daily log must be absent before both writes begin");
+
+  const results = await Promise.all([
+    markdownLogSink.write(firstReview, config),
+    markdownLogSink.write(secondReview, config),
+  ]);
+
+  assert.deepEqual(results.map((result) => result.status), ["written", "written"]);
+  const content = readFileSync(path, "utf8");
+  assert.equal(content.match(/target_language:/g).length, 1, "frontmatter must be written once");
+  assert.equal(content.match(/^## /gm).length, 2);
+  assert.match(content, /first concurrent review/);
+  assert.match(content, /second concurrent review/);
 });
 
 test("a log file left empty by an interrupted write gets its header back", async () => {

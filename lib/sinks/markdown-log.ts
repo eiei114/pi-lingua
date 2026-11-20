@@ -7,6 +7,27 @@ import { describeError, failed, type ReviewSink, type SinkResult } from "./types
 
 export const MARKDOWN_LOG_SINK_ID = "markdown-log";
 
+const pathWriteQueues = new Map<string, Promise<void>>();
+
+/** Serialize writes to one daily log while allowing independent paths to proceed concurrently. */
+async function withPathWriteLock<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
+  const previous = pathWriteQueues.get(filePath) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current);
+  pathWriteQueues.set(filePath, queued);
+
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (pathWriteQueues.get(filePath) === queued) pathWriteQueues.delete(filePath);
+  }
+}
+
 /** Local calendar date, not UTC, so a review lands in the file the user is living in. */
 export function localDateKey(isoTimestamp: string): string {
   const date = new Date(isoTimestamp);
@@ -104,16 +125,18 @@ export const markdownLogSink: ReviewSink = {
     const filePath = reviewLogPath(config, review);
 
     try {
-      await mkdir(directory, { recursive: true });
+      await withPathWriteLock(filePath, async () => {
+        await mkdir(directory, { recursive: true });
 
-      const sequence = renderReviewLogSection(review);
+        const sequence = renderReviewLogSection(review);
 
-      if (await hasContent(filePath)) {
-        await appendFile(filePath, sequence, "utf8");
-      } else {
-        // Create with the header first so the file always opens with valid frontmatter.
-        await writeFile(filePath, renderReviewLogHeader(review) + sequence, "utf8");
-      }
+        if (await hasContent(filePath)) {
+          await appendFile(filePath, sequence, "utf8");
+        } else {
+          // Create with the header first so the file always opens with valid frontmatter.
+          await writeFile(filePath, renderReviewLogHeader(review) + sequence, "utf8");
+        }
+      });
 
       return { sinkId: MARKDOWN_LOG_SINK_ID, status: "written", path: filePath };
     } catch (error) {
