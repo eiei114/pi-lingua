@@ -50,12 +50,34 @@ export function reviewLogPath(config: LinguaConfig, review: PromptReview): strin
   return join(expandHome(config.sinks.reviewLog.dir), `${localDateKey(review.createdAt)}.md`);
 }
 
+const PLAIN_YAML_LABEL = /^\p{L}[\p{L}\p{N} ._()-]*$/u;
+const YAML_RESERVED_WORDS = new Set(["null", "true", "false", "yes", "no", "on", "off", "y", "n"]);
+
+/**
+ * Serialize a configurable language label as a single-line YAML scalar.
+ * Ordinary labels (`English`, `日本語`) stay plain; anything that could change the
+ * YAML structure is emitted as an escaped double-quoted scalar.
+ */
+export function yamlScalar(value: string): string {
+  if (
+    PLAIN_YAML_LABEL.test(value) &&
+    !value.endsWith(" ") &&
+    !YAML_RESERVED_WORDS.has(value.toLowerCase())
+  ) {
+    return value;
+  }
+  return JSON.stringify(value).replace(
+    /[\u0085\u2028\u2029]/g,
+    (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
 export function renderReviewLogHeader(review: PromptReview): string {
   return `${[
     "---",
     `date: ${localDateKey(review.createdAt)}`,
-    `target_language: ${review.targetLanguageName}`,
-    `native_language: ${review.nativeLanguageName}`,
+    `target_language: ${yamlScalar(review.targetLanguageName)}`,
+    `native_language: ${yamlScalar(review.nativeLanguageName)}`,
     "---",
   ].join("\n")}\n\n`;
 }
