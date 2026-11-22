@@ -9,7 +9,9 @@ const {
   localDateKey,
   localTimeLabel,
   markdownLogSink,
+  renderReviewLogHeader,
   renderReviewLogSection,
+  yamlScalar,
   reviewLogPath,
 } = await import("../lib/sinks/markdown-log.ts");
 const { ankiSink, buildAnkiNote, probeAnkiConnect, renderAnkiTsvRows } = await import(
@@ -224,4 +226,60 @@ test("formatSinkResults reports status, path, and detail on one line each", () =
   ]);
   assert.match(text, /markdown-log: written \/tmp\/a\.md/);
   assert.match(text, /anki: failed — boom/);
+});
+
+test("language labels that could alter YAML are quoted and round-trip in one frontmatter block", () => {
+  const labels = [
+    "English: formal",
+    "Pig # Latin",
+    'say "hi"',
+    "back\\slash",
+    "line1\nline2\r\nline3",
+    "ends with space ",
+    "- dash",
+    "null",
+    "sep arator",
+    "",
+  ];
+  for (const label of labels) {
+    const header = renderReviewLogHeader(
+      review({ targetLanguageName: label, nativeLanguageName: label }),
+    );
+    const match = header.match(/^---\n([\s\S]*?)\n---\n\n$/);
+    assert.ok(match, `one closed frontmatter block for ${JSON.stringify(label)}`);
+    const lines = match[1].split("\n");
+    assert.equal(lines.length, 3, `no extra physical lines for ${JSON.stringify(label)}`);
+    assert.match(lines[0], /^date: /);
+    for (const [index, key] of [
+      [1, "target_language"],
+      [2, "native_language"],
+    ]) {
+      assert.ok(lines[index].startsWith(`${key}: `), `${key} key for ${JSON.stringify(label)}`);
+      const raw = lines[index].slice(key.length + 2);
+      assert.equal(JSON.parse(raw), label, `${key} round-trips`);
+    }
+    assert.equal(header.split("---").length, 3, "exactly one frontmatter block");
+  }
+});
+
+test("ordinary language labels stay plain and readable in the frontmatter", () => {
+  const header = renderReviewLogHeader(review());
+  assert.match(header, /\ntarget_language: English\nnative_language: Japanese\n/);
+  assert.equal(yamlScalar("日本語"), "日本語");
+  assert.equal(yamlScalar("Chinese (Traditional)"), "Chinese (Traditional)");
+});
+
+test("the markdown-log sink writes a safely quoted header for unusual labels", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-lingua-quoted-"));
+  const config = tempConfig(dir);
+  const odd = review({ targetLanguageName: 'English: US # "x"\nextra: 1' });
+  const result = await markdownLogSink.write(odd, config);
+  assert.equal(result.status, "written");
+  const content = readFileSync(result.path, "utf8");
+  assert.match(
+    content,
+    /^---\ndate: [^\n]*\ntarget_language: "English: US # \\"x\\"\\nextra: 1"\nnative_language: Japanese\n---\n\n## /,
+  );
+  const frontmatter = content.slice(0, content.indexOf("\n---\n\n"));
+  assert.equal(frontmatter.match(/^extra:/gm), null);
 });
