@@ -55,6 +55,25 @@ test("the widget compacts long URLs and file paths in the source excerpt only", 
   assert.ok(detail.includes(path));
 });
 
+test("the widget preserves literal URL marker text without URLs", () => {
+  const prompt = "Keep \uE0000\uE001 and \uE00099\uE001 as written.";
+  const literalReview = review({ language: "native", prompt, changes: [] });
+
+  const widget = renderReviewWidget(literalReview, { explainIn: "native" });
+  assert.equal(widget[1], `> ${prompt}`);
+  assert.ok(renderReviewDetail(literalReview).includes(prompt));
+});
+
+test("the widget compacts the URL without replacing literal marker text", () => {
+  const url = "https://example.com/docs/api/reference/guide?utm_source=a-very-long-tracking-value";
+  const prompt = `Keep \uE0000\uE001 and \uE00001\uE001; review ${url}.`;
+  const literalReview = review({ language: "native", prompt, changes: [] });
+
+  const widget = renderReviewWidget(literalReview, { explainIn: "native" });
+  assert.equal(widget[1], "> Keep \uE0000\uE001 and \uE00001\uE001; review https://example.com/…/reference/guide?….");
+  assert.ok(renderReviewDetail(literalReview).includes(prompt));
+});
+
 test("file paths in original change fragments are compacted in the widget", () => {
   const path = "/Users/keisu/Projects/pi-lingua/src/features/long-file-name.ts";
   const lines = renderReviewWidget(

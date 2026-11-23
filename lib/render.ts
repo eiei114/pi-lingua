@@ -25,16 +25,23 @@ export interface ReviewWidgetSection {
 const URL_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
 const QUOTED_PATH_PATTERN = /(["'`])([^"'`\n]+)\1/g;
 const PATH_PREFIX_CHARACTERS = new Set(["=", ":", "(", "[", "{", "<", '"', "'", "`"]);
-const URL_MARKER_PATTERN = /\uE000(\d+)\uE001/g;
+const URL_MARKER_PATTERN = /\uE000\d+\uE001/g;
 const URL_COMPACT_THRESHOLD = 42;
 const FILE_PATH_COMPACT_THRESHOLD = 32;
 
 /** Keep widget source excerpts readable without letting references dominate them. */
 function compactWidgetSource(text: string): string {
-  const urls: string[] = [];
+  // Reserve all marker-shaped source text so only generated markers are restored.
+  const literalMarkers = new Set(text.match(URL_MARKER_PATTERN) ?? []);
+  const urls = new Map<string, string>();
+  let nextIndex = 0;
   const protectedText = text.replace(URL_PATTERN, (url) => {
-    const index = urls.push(url) - 1;
-    return `\uE000${index}\uE001`;
+    let marker: string;
+    do {
+      marker = `\uE000${nextIndex++}\uE001`;
+    } while (literalMarkers.has(marker));
+    urls.set(marker, url);
+    return marker;
   });
 
   const compactedQuotedPaths = protectedText.replace(
@@ -46,9 +53,10 @@ function compactWidgetSource(text: string): string {
   );
   const compactedPaths = compactedQuotedPaths.replace(/\S+/g, compactFilePathInToken);
 
-  return compactedPaths.replace(URL_MARKER_PATTERN, (_marker, index: string) =>
-    compactUrl(urls[Number(index)] ?? ""),
-  );
+  return compactedPaths.replace(URL_MARKER_PATTERN, (marker) => {
+    const url = urls.get(marker);
+    return url === undefined ? marker : compactUrl(url);
+  });
 }
 
 function compactFilePathInToken(token: string): string {
