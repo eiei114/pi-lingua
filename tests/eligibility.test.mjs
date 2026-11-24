@@ -117,6 +117,17 @@ test("buildProseText keeps prose that surrounds a code block", () => {
   assert.doesNotMatch(prose, /const a/);
 });
 
+test("a fenced code block touching two words preserves their boundary", () => {
+  const prompt = "fix```ts\nconst a = 1;\n```login";
+  const prose = buildProseText(prompt);
+  assert.equal(prose, "fix login");
+  assert.equal(measureProse(prose).words, 2);
+
+  const result = evaluate(prompt, { minWords: 2 });
+  assert.equal(result.eligible, true);
+  assert.equal(result.language, "target");
+});
+
 test("measureProse reports both words and scripted characters", () => {
   assert.deepEqual(measureProse("fix the login bug"), { words: 4, characters: 14 });
   assert.deepEqual(measureProse("ログインのバグ"), { words: 1, characters: 7 });
