@@ -35,8 +35,7 @@ export function stripNonProse(text: string): string {
 }
 
 export function buildProseText(text: string): string {
-  const withoutBlocks = text.replace(FENCED_BLOCK, "");
-  return stripNonProse(withoutBlocks);
+  return stripNonProse(text);
 }
 
 export interface ProseLength {
