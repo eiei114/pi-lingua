@@ -22,6 +22,15 @@ test("resolveLanguage returns undefined for unknown input so callers can report 
   assert.equal(resolveLanguage("   "), undefined);
 });
 
+test("resolveLanguage rejects inherited keys in exact tag lookup", () => {
+  assert.equal(resolveLanguage("constructor"), undefined);
+  assert.equal(resolveLanguage("__proto__"), undefined);
+});
+
+test("resolveLanguage rejects an inherited primary tag with a region suffix", () => {
+  assert.equal(resolveLanguage("constructor-GB"), undefined);
+});
+
 test("every language definition carries a name, scripts, and a length unit", () => {
   for (const [tag, definition] of Object.entries(LANGUAGES)) {
     assert.ok(definition.name.length > 0, `${tag} needs a display name`);
