@@ -176,6 +176,55 @@ test("an automatic run only touches automatic sinks", async () => {
   assert.deepEqual(results.map((result) => result.sinkId), ["markdown-log"]);
 });
 
+test("an enable check failure is reported without stopping later matching sinks", async () => {
+  const calls = [];
+  const sinks = [
+    {
+      id: "broken",
+      trigger: "auto",
+      isEnabled() {
+        calls.push("broken:enabled");
+        throw new Error("enable check failed");
+      },
+      write: () => assert.fail("a sink with a failed enable check must not write"),
+    },
+    {
+      id: "disabled",
+      trigger: "auto",
+      isEnabled() {
+        calls.push("disabled:enabled");
+        return false;
+      },
+      write: () => assert.fail("a disabled sink must not write"),
+    },
+    {
+      id: "manual",
+      trigger: "manual",
+      isEnabled: () => assert.fail("a nonmatching sink must not evaluate enablement"),
+      write: () => assert.fail("a nonmatching sink must not write"),
+    },
+    {
+      id: "working",
+      trigger: "auto",
+      isEnabled() {
+        calls.push("working:enabled");
+        return true;
+      },
+      async write() {
+        calls.push("working:write");
+        return { sinkId: "working", status: "written" };
+      },
+    },
+  ];
+
+  const results = await runSinks(review(), createDefaultConfig(), "auto", sinks);
+  assert.deepEqual(calls, ["broken:enabled", "disabled:enabled", "working:enabled", "working:write"]);
+  assert.deepEqual(results, [
+    { sinkId: "broken", status: "failed", detail: "enable check failed" },
+    { sinkId: "working", status: "written" },
+  ]);
+});
+
 test("the anki sink is skipped when the review suggests no vocabulary", async () => {
   const config = tempConfig(mkdtempSync(join(tmpdir(), "pi-lingua-novocab-")));
   config.sinks.anki.enabled = true;
