@@ -67,13 +67,11 @@ export function resolveLanguage(value: string): ResolvedLanguage | undefined {
   const trimmed = value.trim().toLowerCase();
   if (!trimmed) return undefined;
 
-  const byTag = LANGUAGES[trimmed];
-  if (byTag) return { tag: trimmed, definition: byTag };
+  if (Object.hasOwn(LANGUAGES, trimmed)) return { tag: trimmed, definition: LANGUAGES[trimmed] };
 
   // Language tags may carry a region or script subtag ("en-GB", "zh-Hans").
   const primary = trimmed.split(/[-_]/)[0];
-  const byPrimaryTag = LANGUAGES[primary];
-  if (byPrimaryTag) return { tag: primary, definition: byPrimaryTag };
+  if (Object.hasOwn(LANGUAGES, primary)) return { tag: primary, definition: LANGUAGES[primary] };
 
   for (const [tag, definition] of Object.entries(LANGUAGES)) {
     if (definition.name.toLowerCase() === trimmed) return { tag, definition };
