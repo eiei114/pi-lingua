@@ -19,8 +19,8 @@ export async function runSinks(
   const results: SinkResult[] = [];
   for (const sink of sinks) {
     if (sink.trigger !== trigger) continue;
-    if (!sink.isEnabled(config)) continue;
     try {
+      if (!sink.isEnabled(config)) continue;
       results.push(await sink.write(review, config));
     } catch (error) {
       results.push(failed(sink.id, describeError(error)));
