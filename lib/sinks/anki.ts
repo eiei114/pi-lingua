@@ -133,13 +133,18 @@ export const ankiSink: ReviewSink = {
     }
 
     const added: string[] = [];
+    const addFailed = (front: string, reason: string) => failed(
+      ANKI_SINK_ID,
+      `AnkiConnect: confirmed ${added.length} of ${review.vocabulary.length} requested card(s); ` +
+        `no confirmation for card ${added.length + 1} (${JSON.stringify(front)}): ${reason}`,
+    );
     for (const item of review.vocabulary) {
       try {
         const response = await callAnkiConnect(endpoint, buildAnkiNote(item, review, deck));
-        if (response.error) return failed(ANKI_SINK_ID, `AnkiConnect: ${String(response.error)}`);
+        if (response.error) return addFailed(item.from, String(response.error));
         added.push(item.from);
       } catch (error) {
-        return failed(ANKI_SINK_ID, `AnkiConnect: ${describeError(error)}`);
+        return addFailed(item.from, describeError(error));
       }
     }
 
