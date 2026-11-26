@@ -255,6 +255,71 @@ test("AnkiConnect probe failure is reported rather than thrown", async () => {
   assert.ok(result.detail.length > 0);
 });
 
+function directAnkiConfig() {
+  const config = tempConfig(mkdtempSync(join(tmpdir(), "pi-lingua-anki-direct-")));
+  config.sinks.anki.enabled = true;
+  config.sinks.anki.mode = "ankiconnect";
+  config.sinks.anki.deck = "Deck::X";
+  return config;
+}
+
+for (const { name, reason, respond } of [
+  {
+    name: "an AnkiConnect error",
+    reason: "cannot create note because it is a duplicate",
+    respond: (reason) => Response.json({ result: null, error: reason }),
+  },
+  {
+    name: "a thrown request error",
+    reason: "connection lost",
+    respond: (reason) => { throw new Error(reason); },
+  },
+]) {
+  test(`the anki sink reports confirmed progress and stops after ${name}`, async (t) => {
+    const config = directAnkiConfig();
+    const requests = [];
+    t.mock.method(globalThis, "fetch", async (_url, options) => {
+      const { action, params } = JSON.parse(options.body);
+      requests.push([action, params?.note.fields.Front]);
+      if (action === "version") return Response.json({ result: 6, error: null });
+      if (params.note.fields.Front === "fix") return Response.json({ result: 123, error: null });
+      return respond(reason);
+    });
+
+    const result = await ankiSink.write(review({ vocabulary: [
+      { from: "fix", to: "resolve" },
+      { from: "test", to: "verify" },
+      { from: "finish", to: "complete" },
+    ] }), config);
+    assert.deepEqual(result, {
+      sinkId: "anki",
+      status: "failed",
+      detail: `AnkiConnect: confirmed 1 of 3 requested card(s); no confirmation for card 2 ("test"): ${reason}`,
+    });
+    assert.deepEqual(requests, [["version", undefined], ["addNote", "fix"], ["addNote", "test"]]);
+    assert.equal(existsSync(config.sinks.anki.tsvPath), false);
+  });
+}
+
+test("the anki sink still reports all notes on full direct success", async (t) => {
+  const config = directAnkiConfig();
+  t.mock.method(globalThis, "fetch", async (_url, options) => Response.json({
+    result: JSON.parse(options.body).action === "version" ? 6 : 123,
+    error: null,
+  }));
+
+  const result = await ankiSink.write(review({ vocabulary: [
+    { from: "fix", to: "resolve" },
+    { from: "test", to: "verify" },
+  ] }), config);
+  assert.deepEqual(result, {
+    sinkId: "anki",
+    status: "written",
+    detail: "added 2 note(s) to Deck::X: fix, test",
+  });
+  assert.equal(existsSync(config.sinks.anki.tsvPath), false);
+});
+
 test("the anki sink falls back to TSV and says why when AnkiConnect is absent", async () => {
   const dir = mkdtempSync(join(tmpdir(), "pi-lingua-anki-"));
   const config = tempConfig(dir);
